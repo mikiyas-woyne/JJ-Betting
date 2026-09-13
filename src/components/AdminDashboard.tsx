@@ -24,9 +24,16 @@ import {
   ExternalLink,
   Loader2,
   ArrowDownCircle,
-  Key
+  Key,
+  Terminal,
+  ChevronDown,
+  ChevronUp,
+  Gauge,
+  Info,
+  Copy,
+  Check
 } from 'lucide-react';
-import { Match, Bet, WalletTransaction, AuditLog } from '../types';
+import { Match, Bet, WalletTransaction, AuditLog, OddsApiDiagnosticResult } from '../types';
 import { api } from '../services/api';
 import { AdminDepositsSection } from './AdminDepositsSection';
 import { AdminSettlementSection } from './AdminSettlementSection';
@@ -55,6 +62,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
   const [isTestingConnection, setIsTestingConnection] = useState<boolean>(false);
   const [connectionTestResult, setConnectionTestResult] = useState<any>(null);
+  
+  // Odds API Raw Diagnostic State (/sports/soccer_epl_bp/odds)
+  const [isDiagnosingOdds, setIsDiagnosingOdds] = useState<boolean>(false);
+  const [oddsDiagnosticResult, setOddsDiagnosticResult] = useState<OddsApiDiagnosticResult | null>(null);
+  const [showDiagnosticHeaders, setShowDiagnosticHeaders] = useState<boolean>(false);
+  const [copiedPayload, setCopiedPayload] = useState<boolean>(false);
   const [bookmakerSource, setBookmakerSource] = useState<{ selected: string; available: Array<{ key: string; title: string }> }>({
     selected: 'default',
     available: []
@@ -67,6 +80,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [maskedKey, setMaskedKey] = useState<string>('');
   const [isUpdatingKey, setIsUpdatingKey] = useState<boolean>(false);
   const [keyUpdateMsg, setKeyUpdateMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Sports Provider Switcher State (ESPN Live vs The Odds API vs API-Football)
+  const [providerConfig, setProviderConfig] = useState<{
+    activeProvider: string;
+    providerKey: string;
+    supportedProviders: Array<{ key: string; name: string; description: string }>;
+  }>({
+    activeProvider: 'ESPN Live Sports Feed',
+    providerKey: 'espn',
+    supportedProviders: [
+      { key: 'espn', name: 'ESPN Official Live Sports Feed', description: 'Real-time scores, team badges, 100% genuine live sports (Zero-key, high availability)' },
+      { key: 'the-odds-api', name: 'The Odds API', description: 'Requires active key and available quota credits' },
+      { key: 'api-football', name: 'API-Football (RapidAPI)', description: 'Requires RapidAPI key' }
+    ]
+  });
+  const [isSwitchingProvider, setIsSwitchingProvider] = useState<boolean>(false);
+  const [providerSwitchMsg, setProviderSwitchMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Settlement selection states
   const [selectedMatchId, setSelectedMatchId] = useState<string>(matches[0]?.id || '');
@@ -94,8 +124,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       api.getSportsApiKeyStatus().then(k => {
         if (k.maskedKey) setMaskedKey(k.maskedKey);
       }).catch(() => {});
+      api.getSportsProvider().then(p => {
+        setProviderConfig({
+          activeProvider: p.activeProvider,
+          providerKey: p.providerKey,
+          supportedProviders: p.supportedProviders
+        });
+      }).catch(() => {});
     } catch (err) {
       console.error('Failed to load sports provider stats:', err);
+    }
+  };
+
+  const handleSwitchProvider = async (providerKey: string) => {
+    setIsSwitchingProvider(true);
+    setProviderSwitchMsg(null);
+    try {
+      const res = await api.setSportsProvider(providerKey);
+      setProviderSwitchMsg({ type: 'success', text: res.message });
+      await loadProviderStats();
+      onRefreshMatches();
+    } catch (err: any) {
+      setProviderSwitchMsg({ type: 'error', text: err.message || 'Failed to switch provider' });
+    } finally {
+      setIsSwitchingProvider(false);
     }
   };
 
@@ -193,6 +245,45 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setConnectionTestResult({ success: false, message: err.message || 'Connection test failed' });
     } finally {
       setIsTestingConnection(false);
+    }
+  };
+
+  const handleRunOddsDiagnostic = async (sportKey: string = 'soccer_epl_bp') => {
+    try {
+      setIsDiagnosingOdds(true);
+      setOddsDiagnosticResult(null);
+      const res = await api.diagnoseOddsFetch(sportKey);
+      setOddsDiagnosticResult(res);
+      await loadProviderStats();
+    } catch (err: any) {
+      setOddsDiagnosticResult({
+        timestamp: new Date().toISOString(),
+        provider: 'The Odds API',
+        endpoint: `/sports/${sportKey}/odds`,
+        targetUrl: `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=HIDDEN`,
+        sanitizedUrl: `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=HIDDEN`,
+        httpStatus: 500,
+        statusText: 'Diagnostic Request Failed',
+        headers: {},
+        responseBody: null,
+        errorBody: err.message || 'Diagnostic error occurred while contacting server',
+        parsedError: null,
+        isError: true,
+        success: false,
+        durationMs: 0,
+        apiKeyConfigured: false,
+        maskedApiKey: '[ERROR]',
+        quotaInfo: {
+          isExhausted: true,
+          remaining: '0',
+          used: null,
+          lastCost: null,
+          errorCode: 'DIAGNOSTIC_FAILURE',
+          message: err.message || 'Could not complete diagnostic request'
+        }
+      });
+    } finally {
+      setIsDiagnosingOdds(false);
     }
   };
 
@@ -780,6 +871,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
 
                   <button
+                    onClick={() => handleRunOddsDiagnostic('soccer_epl_bp')}
+                    disabled={isDiagnosingOdds}
+                    className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-amber-300 font-semibold transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50 border border-amber-500/30"
+                    title="Fetch raw response from 'https://api.the-odds-api.com/v4/sports/soccer_epl_bp/odds?apiKey=HIDDEN'"
+                  >
+                    {isDiagnosingOdds ? <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" /> : <Terminal className="w-3.5 h-3.5 text-amber-400" />}
+                    <span>Diagnose Odds (soccer_epl_bp)</span>
+                  </button>
+
+                  <button
                     onClick={handleManualSync}
                     disabled={isSyncing || providerStats?.syncInProgress}
                     className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-emerald-500/20 disabled:opacity-50"
@@ -892,6 +993,337 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     )}
                     <span>HTTP {connectionTestResult.details?.httpStatus || '200'}</span>
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* Dedicated Odds API Raw Response Diagnostic Inspector */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+                    <Terminal className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-white">Odds Endpoint Diagnostic Panel</h3>
+                      <span className="px-2 py-0.5 rounded bg-slate-950 border border-amber-500/30 text-amber-300 font-mono text-[10px] font-bold">
+                        soccer_epl_bp/odds
+                      </span>
+                    </div>
+                    <p className="text-slate-400 text-xs font-mono">
+                      Target: https://api.the-odds-api.com/v4/sports/soccer_epl_bp/odds?apiKey=HIDDEN
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleRunOddsDiagnostic('soccer_epl_bp')}
+                  disabled={isDiagnosingOdds}
+                  className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition-all flex items-center gap-2 cursor-pointer shadow-md shadow-amber-500/20 disabled:opacity-50 text-xs shrink-0"
+                >
+                  {isDiagnosingOdds ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Fetching Raw Endpoint...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Terminal className="w-4 h-4" />
+                      <span>Execute Diagnostic Call</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Diagnostic Results View */}
+              {oddsDiagnosticResult ? (
+                <div className="space-y-4">
+                  {/* High Level Quota & Metric Badges */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {/* Quota State */}
+                    <div className={`p-3 rounded-xl border ${
+                      oddsDiagnosticResult.quotaInfo?.isExhausted || oddsDiagnosticResult.httpStatus === 429 || oddsDiagnosticResult.httpStatus === 401
+                        ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                        : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                    }`}>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1.5">
+                        <Gauge className="w-3.5 h-3.5" />
+                        <span>Quota Status</span>
+                      </div>
+                      <div className="font-bold text-sm truncate">
+                        {oddsDiagnosticResult.quotaInfo?.isExhausted || oddsDiagnosticResult.httpStatus === 429 || oddsDiagnosticResult.httpStatus === 401
+                          ? 'Quota Exhausted'
+                          : 'Active Quota'}
+                      </div>
+                      <div className="text-[10px] opacity-80 mt-0.5 truncate font-mono">
+                        {oddsDiagnosticResult.quotaInfo?.errorCode || (oddsDiagnosticResult.httpStatus === 200 ? 'SUCCESS' : `HTTP ${oddsDiagnosticResult.httpStatus}`)}
+                      </div>
+                    </div>
+
+                    {/* Requests Remaining */}
+                    <div className="bg-slate-950/80 border border-slate-800 p-3 rounded-xl">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                        Requests Remaining
+                      </div>
+                      <div className={`font-mono font-bold text-sm ${
+                        (oddsDiagnosticResult.requestsRemaining === '0' || oddsDiagnosticResult.quotaInfo?.remaining === '0')
+                          ? 'text-rose-400'
+                          : 'text-emerald-400'
+                      }`}>
+                        {oddsDiagnosticResult.requestsRemaining ?? oddsDiagnosticResult.quotaInfo?.remaining ?? '0'}
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 font-mono">
+                        x-requests-remaining
+                      </div>
+                    </div>
+
+                    {/* Requests Used */}
+                    <div className="bg-slate-950/80 border border-slate-800 p-3 rounded-xl">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                        Requests Used
+                      </div>
+                      <div className="font-mono font-bold text-sm text-slate-200">
+                        {oddsDiagnosticResult.requestsUsed ?? oddsDiagnosticResult.quotaInfo?.used ?? 'N/A'}
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 font-mono">
+                        x-requests-used
+                      </div>
+                    </div>
+
+                    {/* HTTP Status & Latency */}
+                    <div className="bg-slate-950/80 border border-slate-800 p-3 rounded-xl">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                        HTTP Status & Latency
+                      </div>
+                      <div className={`font-mono font-bold text-sm ${oddsDiagnosticResult.success ? 'text-emerald-400' : 'text-amber-400'}`}>
+                        {oddsDiagnosticResult.httpStatus || 500} {oddsDiagnosticResult.statusText || ''}
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 font-mono">
+                        {oddsDiagnosticResult.durationMs}ms roundtrip
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quota Exhaustion / Rate Limit Warning Callout */}
+                  {(oddsDiagnosticResult.quotaInfo?.isExhausted || oddsDiagnosticResult.isError) && (
+                    <div className="p-3.5 bg-rose-500/15 border border-rose-500/30 rounded-xl space-y-1.5 text-rose-200">
+                      <div className="flex items-center gap-2 font-bold text-xs">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>Quota / Rate-Limit Alert: {oddsDiagnosticResult.quotaInfo?.errorCode || `HTTP ${oddsDiagnosticResult.httpStatus}`}</span>
+                      </div>
+                      <div className="text-[11px] text-rose-300 leading-relaxed">
+                        {oddsDiagnosticResult.quotaInfo?.message || oddsDiagnosticResult.parsedError?.message || oddsDiagnosticResult.errorBody || 'Usage credits have been depleted or access was rejected.'}
+                      </div>
+                      <div className="text-[10px] text-rose-400/80 font-mono pt-0.5">
+                        API Key: {oddsDiagnosticResult.maskedApiKey} | Last Request Cost: {oddsDiagnosticResult.requestsLast || oddsDiagnosticResult.quotaInfo?.lastCost || '0'} credits
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Response Headers Collapsible */}
+                  <div className="border border-slate-800 rounded-xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowDiagnosticHeaders(!showDiagnosticHeaders)}
+                      className="w-full px-4 py-2.5 bg-slate-950/80 hover:bg-slate-900 flex items-center justify-between text-slate-300 transition-colors cursor-pointer text-left"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Info className="w-3.5 h-3.5 text-blue-400" />
+                        <span className="font-semibold text-xs text-white">Full HTTP Response Headers</span>
+                        <span className="text-[10px] text-slate-500 font-mono">({Object.keys(oddsDiagnosticResult.headers || {}).length} headers)</span>
+                      </div>
+                      {showDiagnosticHeaders ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                    </button>
+
+                    {showDiagnosticHeaders && (
+                      <div className="p-3 bg-slate-950 font-mono text-[11px] space-y-1 max-h-48 overflow-y-auto border-t border-slate-800">
+                        {Object.keys(oddsDiagnosticResult.headers || {}).length > 0 ? (
+                          Object.entries(oddsDiagnosticResult.headers).map(([key, val]) => (
+                            <div key={key} className="flex gap-2 py-0.5 border-b border-slate-900/60 last:border-0">
+                              <span className="text-slate-400 font-semibold min-w-[170px] shrink-0">{key}:</span>
+                              <span className={`${key.includes('request') ? 'text-amber-300 font-bold' : 'text-slate-300'} break-all`}>{val}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-slate-500 italic py-1">No headers captured</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Full Raw Error / Response Body block */}
+                  <div className="border border-slate-800 rounded-xl overflow-hidden">
+                    <div className="px-4 py-2 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Terminal className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="font-semibold text-xs text-white">
+                          {oddsDiagnosticResult.isError ? 'Full Raw Response Error Body' : 'Raw Response Body'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(oddsDiagnosticResult.errorBody || oddsDiagnosticResult.responseBody || '');
+                          setCopiedPayload(true);
+                          setTimeout(() => setCopiedPayload(false), 2000);
+                        }}
+                        className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 transition-colors px-2 py-1 rounded bg-slate-800 cursor-pointer"
+                      >
+                        {copiedPayload ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedPayload ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    </div>
+                    <pre className="p-3 bg-slate-950 text-slate-300 font-mono text-[11px] max-h-56 overflow-y-auto whitespace-pre-wrap break-all leading-relaxed">
+                      {oddsDiagnosticResult.errorBody || oddsDiagnosticResult.responseBody || (oddsDiagnosticResult.success ? 'HTTP 200 OK: Valid response received' : 'No response payload')}
+                    </pre>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-slate-950/60 rounded-xl border border-dashed border-slate-800 text-center text-slate-400 text-xs">
+                  Click <strong className="text-amber-300">"Execute Diagnostic Call"</strong> to query <code className="text-slate-200 font-mono">https://api.the-odds-api.com/v4/sports/soccer_epl_bp/odds?apiKey=HIDDEN</code>, log status, headers, and error details, and inspect quota limits.
+                </div>
+              )}
+            </div>
+
+            {/* Live Sports Data Provider Selector Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                    <Server className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Live Sports Data Provider Feed</h3>
+                    <p className="text-slate-400 text-xs">
+                      Switch between high-availability real-time sports providers. All fixtures are authentic real-world events.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 text-xs font-medium">Current Provider:</span>
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-bold uppercase font-mono text-xs">
+                    {providerConfig.activeProvider}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {/* Option 1: ESPN Official Live Feed */}
+                <div className={`p-4 rounded-xl border transition-all flex flex-col justify-between ${
+                  providerConfig.providerKey === 'espn'
+                    ? 'bg-emerald-500/10 border-emerald-500/50 shadow-sm'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="font-bold text-sm text-white flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        ESPN Live Feed
+                      </div>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                        FREE & LIVE
+                      </span>
+                    </div>
+                    <p className="text-slate-400 text-[11px] leading-relaxed">
+                      Official live scores, authentic club crests & logos, real European match schedules without API key limits.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isSwitchingProvider || providerConfig.providerKey === 'espn'}
+                    onClick={() => handleSwitchProvider('espn')}
+                    className={`mt-4 w-full py-2 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-60 ${
+                      providerConfig.providerKey === 'espn'
+                        ? 'bg-emerald-500 text-slate-950 cursor-default'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                    }`}
+                  >
+                    {providerConfig.providerKey === 'espn' ? 'Active Feed' : 'Switch to ESPN Feed'}
+                  </button>
+                </div>
+
+                {/* Option 2: The Odds API */}
+                <div className={`p-4 rounded-xl border transition-all flex flex-col justify-between ${
+                  providerConfig.providerKey === 'the-odds-api'
+                    ? 'bg-amber-500/10 border-amber-500/50 shadow-sm'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="font-bold text-sm text-white flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                        The Odds API
+                      </div>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                        COMMERCIAL
+                      </span>
+                    </div>
+                    <p className="text-slate-400 text-[11px] leading-relaxed">
+                      Commercial odds feed. Requires active API key with monthly usage credits. Switches to ESPN automatically when quota depleted.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isSwitchingProvider || providerConfig.providerKey === 'the-odds-api'}
+                    onClick={() => handleSwitchProvider('the-odds-api')}
+                    className={`mt-4 w-full py-2 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-60 ${
+                      providerConfig.providerKey === 'the-odds-api'
+                        ? 'bg-amber-500 text-slate-950 cursor-default'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                    }`}
+                  >
+                    {providerConfig.providerKey === 'the-odds-api' ? 'Active Feed' : 'Switch to The Odds API'}
+                  </button>
+                </div>
+
+                {/* Option 3: API-Football */}
+                <div className={`p-4 rounded-xl border transition-all flex flex-col justify-between ${
+                  providerConfig.providerKey === 'api-football'
+                    ? 'bg-blue-500/10 border-blue-500/50 shadow-sm'
+                    : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                }`}>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="font-bold text-sm text-white flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+                        API-Football
+                      </div>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+                        RAPIDAPI
+                      </span>
+                    </div>
+                    <p className="text-slate-400 text-[11px] leading-relaxed">
+                      European soccer catalog via RapidAPI. Requires RapidAPI subscription key.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isSwitchingProvider || providerConfig.providerKey === 'api-football'}
+                    onClick={() => handleSwitchProvider('api-football')}
+                    className={`mt-4 w-full py-2 rounded-lg text-xs font-bold transition-all cursor-pointer disabled:opacity-60 ${
+                      providerConfig.providerKey === 'api-football'
+                        ? 'bg-blue-500 text-slate-950 cursor-default'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200'
+                    }`}
+                  >
+                    {providerConfig.providerKey === 'api-football' ? 'Active Feed' : 'Switch to API-Football'}
+                  </button>
+                </div>
+              </div>
+
+              {providerSwitchMsg && (
+                <div className={`p-3 rounded-xl border flex items-center gap-2 text-xs ${
+                  providerSwitchMsg.type === 'success'
+                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                    : 'bg-red-500/15 border-red-500/30 text-red-300'
+                }`}>
+                  {providerSwitchMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                  <span>{providerSwitchMsg.text}</span>
                 </div>
               )}
             </div>

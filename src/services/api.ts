@@ -11,7 +11,8 @@ import {
   SettlementRecord,
   MatchSettlementSummary,
   DepositRecord,
-  ManualPaymentDestination
+  ManualPaymentDestination,
+  OddsApiDiagnosticResult
 } from '../types';
 
 export const api = {
@@ -366,6 +367,12 @@ export const api = {
     return json;
   },
 
+  async diagnoseOddsFetch(sportKey: string = 'soccer_epl_bp'): Promise<OddsApiDiagnosticResult> {
+    const res = await fetch(`/api/admin/sports-data/diagnose-odds?sportKey=${encodeURIComponent(sportKey)}`);
+    const json = await res.json();
+    return json;
+  },
+
   async getBookmakerSource(): Promise<{ selected: string; available: Array<{ key: string; title: string }> }> {
     const res = await fetch('/api/admin/sports-data/bookmaker');
     if (!res.ok) throw new Error('Failed to fetch bookmaker source');
@@ -397,6 +404,28 @@ export const api = {
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || 'Failed to update API key');
+    return json;
+  },
+
+  async getSportsProvider(): Promise<{
+    activeProvider: string;
+    providerKey: string;
+    isConfigured: boolean;
+    supportedProviders: Array<{ key: string; name: string; description: string }>;
+  }> {
+    const res = await fetch('/api/admin/sports-data/provider');
+    if (!res.ok) throw new Error('Failed to fetch sports provider config');
+    return res.json();
+  },
+
+  async setSportsProvider(provider: string): Promise<{ success: boolean; message: string; activeProvider: string }> {
+    const res = await fetch('/api/admin/sports-data/provider', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider })
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || 'Failed to switch sports provider');
     return json;
   },
 

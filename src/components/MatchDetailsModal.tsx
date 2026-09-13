@@ -53,15 +53,37 @@ export const MatchDetailsModal: React.FC<MatchDetailsModalProps> = ({
               )}
             </div>
 
-            <div className="flex items-center gap-3 text-lg sm:text-2xl font-black text-white">
-              <span>{match.homeTeam}</span>
+            <div className="flex flex-wrap items-center gap-3 text-lg sm:text-2xl font-black text-white">
+              <div className="flex items-center gap-2">
+                {match.homeLogo && (
+                  <img
+                    src={match.homeLogo}
+                    alt={match.homeTeam}
+                    className="w-7 h-7 object-contain rounded-full bg-slate-800 p-0.5 border border-slate-700/60"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
+                  />
+                )}
+                <span>{match.homeTeam}</span>
+              </div>
               {isLive && match.score && (
-                <span className="bg-slate-800 text-emerald-400 px-2 py-0.5 rounded font-mono text-base sm:text-lg">
+                <span className="bg-slate-800 text-emerald-400 px-2.5 py-0.5 rounded font-mono text-base sm:text-lg border border-emerald-500/20">
                   {match.score.home} - {match.score.away}
                 </span>
               )}
               <span className="text-slate-500 text-sm sm:text-base font-normal">vs</span>
-              <span>{match.awayTeam}</span>
+              <div className="flex items-center gap-2">
+                {match.awayLogo && (
+                  <img
+                    src={match.awayLogo}
+                    alt={match.awayTeam}
+                    className="w-7 h-7 object-contain rounded-full bg-slate-800 p-0.5 border border-slate-700/60"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
+                  />
+                )}
+                <span>{match.awayTeam}</span>
+              </div>
             </div>
           </div>
 

@@ -14,8 +14,11 @@ import {
   OddsSourceSelector,
   TheOddsApiProvider,
   getEffectiveSportsApiKey,
-  saveEffectiveSportsApiKey
+  saveEffectiveSportsApiKey,
+  getEffectiveSportsProvider,
+  saveEffectiveSportsProvider
 } from '../providers/sportsProvider.ts';
+import { EspnSportsProvider } from '../providers/espnSportsProvider.ts';
 import { oddsService } from './oddsService.ts';
 import { INITIAL_MATCHES, INITIAL_SPORTS } from '../../src/data/sportsData.ts';
 
@@ -60,6 +63,15 @@ export interface OddsApiDiagnosticResult {
   maskedApiKey: string;
   requestsRemaining?: string | null;
   requestsUsed?: string | null;
+  requestsLast?: string | null;
+  quotaInfo?: {
+    isExhausted: boolean;
+    remaining: string | null;
+    used: string | null;
+    lastCost: string | null;
+    errorCode: string | null;
+    message: string | null;
+  };
 }
 
 export class SportsApiService {
@@ -279,6 +291,24 @@ export class SportsApiService {
     };
   }
 
+  /**
+   * Update the sports provider dynamically (e.g. 'espn', 'the-odds-api', 'api-football')
+   */
+  public async setProvider(newProvider: string): Promise<{ success: boolean; message: string; activeProvider: string }> {
+    saveEffectiveSportsProvider(newProvider);
+    this.reloadProvider();
+    const syncRes = await this.syncAll(true);
+    return {
+      success: syncRes.success,
+      message: `Active provider updated to ${this.provider.name}. ${syncRes.message}`,
+      activeProvider: this.provider.name
+    };
+  }
+
+  public getActiveProvider(): string {
+    return getEffectiveSportsProvider();
+  }
+
   public getMaskedApiKey(): string {
     const rawApiKey = getEffectiveSportsApiKey();
     if (rawApiKey.length > 8) {
@@ -442,6 +472,167 @@ export class SportsApiService {
   }
 
   /**
+   * Diagnostic function in the API service to fetch the raw response from
+   * 'https://api.the-odds-api.com/v4/sports/soccer_epl_bp/odds?apiKey=HIDDEN',
+   * log the full response status, headers, and error body, and parse quota/rate-limit details.
+   */
+  public async diagnoseOddsFetch(sportKey: string = 'soccer_epl_bp'): Promise<OddsApiDiagnosticResult> {
+    const rawApiKey = getEffectiveSportsApiKey();
+    const rawBaseUrl = (process.env.SPORTS_API_BASE_URL || 'https://api.the-odds-api.com/v4').trim().replace(/\/$/, '');
+    const cleanBase = rawBaseUrl.includes('the-odds-api.com') && !rawBaseUrl.endsWith('/v4')
+      ? `${rawBaseUrl}/v4`
+      : rawBaseUrl;
+    const endpoint = `/sports/${encodeURIComponent(sportKey)}/odds`;
+
+    // Explicit masking helper to prevent exposing SPORTS_API_KEY in logs or responses
+    const maskKey = (text: string | null | undefined): string => {
+      if (!text) return '';
+      let str = String(text);
+      if (rawApiKey.length > 0) {
+        const escaped = rawApiKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        str = str.replace(new RegExp(escaped, 'gi'), 'HIDDEN');
+      }
+      str = str.replace(/([?&]apiKey=)[^&]+/gi, '$1HIDDEN');
+      return str;
+    };
+
+    const maskedKeyDisplay = rawApiKey.length > 8
+      ? `${rawApiKey.slice(0, 4)}...${rawApiKey.slice(-4)} (length: ${rawApiKey.length}) [HIDDEN]`
+      : rawApiKey.length > 0
+      ? '***[HIDDEN]***'
+      : '[NOT_CONFIGURED]';
+
+    const fullUrl = `${cleanBase}${endpoint}?apiKey=${encodeURIComponent(rawApiKey)}`;
+    const sanitizedUrl = `https://api.the-odds-api.com/v4/sports/${sportKey}/odds?apiKey=HIDDEN`;
+
+    const result: OddsApiDiagnosticResult = {
+      timestamp: new Date().toISOString(),
+      provider: 'The Odds API',
+      endpoint,
+      targetUrl: sanitizedUrl,
+      sanitizedUrl,
+      httpStatus: null,
+      statusText: null,
+      headers: {},
+      responseBody: null,
+      errorBody: null,
+      parsedError: null,
+      isError: false,
+      success: false,
+      durationMs: 0,
+      apiKeyConfigured: rawApiKey.length > 5,
+      maskedApiKey: maskedKeyDisplay
+    };
+
+    const startTime = Date.now();
+
+    console.log('\n================================================================================');
+    console.log('>>> [THE-ODDS-API RAW ODDS FETCH DIAGNOSTIC RUN: /sports/soccer_epl_bp/odds] <<<');
+    console.log(`Timestamp:       ${result.timestamp}`);
+    console.log(`Target URL:      ${sanitizedUrl}`);
+    console.log(`Sport Key:       ${sportKey}`);
+    console.log(`API Key Status:  ${result.apiKeyConfigured ? 'Configured' : 'Missing/Empty'} (${maskedKeyDisplay})`);
+    console.log('--------------------------------------------------------------------------------');
+
+    try {
+      const response = await fetch(fullUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'ApexSportsbook-Diagnostics/1.0'
+        },
+        signal: AbortSignal.timeout(12000)
+      });
+
+      result.durationMs = Date.now() - startTime;
+      result.httpStatus = response.status;
+      result.statusText = response.statusText;
+
+      // Capture all raw headers
+      const headersMap: Record<string, string> = {};
+      response.headers.forEach((val, key) => {
+        headersMap[key.toLowerCase()] = maskKey(val);
+      });
+      result.headers = headersMap;
+      result.requestsRemaining = response.headers.get('x-requests-remaining');
+      result.requestsUsed = response.headers.get('x-requests-used');
+      result.requestsLast = response.headers.get('x-requests-last');
+
+      // Read raw body text and sanitize
+      const rawBody = await response.text();
+      const sanitizedBody = maskKey(rawBody);
+
+      let parsed: any = null;
+      try {
+        parsed = JSON.parse(sanitizedBody);
+      } catch {
+        parsed = null;
+      }
+
+      // Check quota exhaustion or rate limit condition
+      const isQuotaExhausted = response.status === 429 ||
+        response.status === 401 ||
+        result.requestsRemaining === '0' ||
+        parsed?.error_code === 'OUT_OF_USAGE_CREDITS' ||
+        sanitizedBody.includes('OUT_OF_USAGE_CREDITS');
+
+      result.quotaInfo = {
+        isExhausted: isQuotaExhausted,
+        remaining: result.requestsRemaining || (isQuotaExhausted ? '0' : null),
+        used: result.requestsUsed || null,
+        lastCost: result.requestsLast || null,
+        errorCode: parsed?.error_code || (isQuotaExhausted ? 'OUT_OF_USAGE_CREDITS' : null),
+        message: parsed?.message || (isQuotaExhausted ? 'Monthly request quota exhausted on The Odds API.' : null)
+      };
+
+      console.log(`Raw HTTP Response Status: ${response.status} ${response.statusText}`);
+      console.log(`Round-trip Latency:       ${result.durationMs}ms`);
+      console.log('Full Response Headers:');
+      console.log(JSON.stringify(headersMap, null, 2));
+
+      if (!response.ok) {
+        result.isError = true;
+        result.success = false;
+        result.errorBody = sanitizedBody;
+        result.parsedError = parsed;
+
+        console.error('--------------------------------------------------------------------------------');
+        console.error(`Full Error Body Received from '${sanitizedUrl}':`);
+        console.error(sanitizedBody);
+        if (parsed?.error_code) {
+          console.error(`Provider Error Code:    ${parsed.error_code}`);
+        }
+        if (parsed?.message) {
+          console.error(`Provider Error Message: ${parsed.message}`);
+        }
+        if (result.quotaInfo?.isExhausted) {
+          console.error(`Quota/Rate-Limit Details: [EXHAUSTED] Remaining: ${result.quotaInfo.remaining}, Used: ${result.quotaInfo.used}, Error: ${result.quotaInfo.errorCode}`);
+        }
+        console.error('--------------------------------------------------------------------------------');
+      } else {
+        result.isError = false;
+        result.success = true;
+        result.responseBody = sanitizedBody.slice(0, 2000);
+        console.log('--------------------------------------------------------------------------------');
+        console.log(`Success Response Body Summary: Received ${Array.isArray(parsed) ? `${parsed.length} odds events` : 'valid response'}`);
+        console.log('--------------------------------------------------------------------------------');
+      }
+    } catch (err: any) {
+      result.durationMs = Date.now() - startTime;
+      result.isError = true;
+      result.success = false;
+      const sanitizedError = maskKey(err.message || String(err));
+      result.errorBody = `Network/Fetch Error: ${sanitizedError}`;
+      console.error('--------------------------------------------------------------------------------');
+      console.error(`Fetch Failure contacting '${sanitizedUrl}':`, sanitizedError);
+      console.error('--------------------------------------------------------------------------------');
+    }
+
+    console.log('================================================================================\n');
+    return result;
+  }
+
+  /**
    * Synchronize all sports fixtures and odds from provider
    */
   public async syncAll(force: boolean = false): Promise<{ success: boolean; message: string; matchesCount: number }> {
@@ -495,7 +686,7 @@ export class SportsApiService {
 
       // 2. Fetch Prioritized Football Competitions (EPL, UCL, La Liga, Serie A, Bundesliga, Ligue 1, Europa League)
       let footballMatches: NormalizedMatch[] = [];
-      if (this.provider instanceof TheOddsApiProvider) {
+      if (typeof this.provider.fetchPrioritizedFootballMatches === 'function') {
         footballMatches = await this.provider.fetchPrioritizedFootballMatches();
       } else {
         footballMatches = await this.provider.fetchUpcomingMatches('soccer_epl');
@@ -503,7 +694,7 @@ export class SportsApiService {
 
       // 3. Fetch Multi-Sport Competitions (NBA Basketball, NFL Football, MLB Baseball, NHL Ice Hockey)
       let multiSportMatches: NormalizedMatch[] = [];
-      if (this.provider instanceof TheOddsApiProvider) {
+      if (typeof this.provider.fetchMultiSportMatches === 'function') {
         multiSportMatches = await this.provider.fetchMultiSportMatches();
       }
 
@@ -533,16 +724,23 @@ export class SportsApiService {
 
       let allEvents = Array.from(allEventsMap.values());
       if (allEvents.length === 0) {
-        // Resilient fallback to sample matches if provider returned 0
-        if (INITIAL_MATCHES && INITIAL_MATCHES.length > 0) {
-          allEvents = [...(INITIAL_MATCHES as any)];
-          console.warn('[SportsApi] No live provider fixtures returned; using resilient catalog.');
+        try {
+          const espnFallback = new EspnSportsProvider();
+          const fallbackEvents = await espnFallback.fetchUpcomingMatches();
+          if (fallbackEvents && fallbackEvents.length > 0) {
+            allEvents = fallbackEvents;
+            console.log(`[SportsApi] Successfully recovered ${fallbackEvents.length} live matches from ESPN Official Live Feed.`);
+          }
+        } catch (espnErr: any) {
+          console.warn('[SportsApi] Notice querying ESPN live fallback:', espnErr.message);
         }
       }
 
       if (allEvents.length === 0) {
+        // Only if network is completely severed do we use initial baseline
         if (INITIAL_MATCHES && INITIAL_MATCHES.length > 0) {
           allEvents = [...(INITIAL_MATCHES as any)];
+          console.warn('[SportsApi] Offline mode: using baseline catalog.');
         }
       }
 

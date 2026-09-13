@@ -73,31 +73,66 @@ export const MatchCard: React.FC<MatchCardProps> = ({
         role="button"
         tabIndex={0}
       >
-        <div className="flex-1 space-y-2">
+        <div className="flex-1 space-y-2.5">
           {/* Home Team */}
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-bold text-base sm:text-lg text-white group-hover:text-emerald-400 transition-colors">
-              {match.homeTeam}
-            </span>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 truncate">
+              {match.homeLogo ? (
+                <img
+                  src={match.homeLogo}
+                  alt={match.homeTeam}
+                  className="w-6 h-6 object-contain flex-shrink-0 rounded-full bg-slate-800/80 p-0.5 border border-slate-700/50"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
+                />
+              ) : (
+                <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-400 flex-shrink-0">
+                  {match.homeTeamShort || match.homeTeam.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <span className="font-bold text-base sm:text-lg text-white group-hover:text-emerald-400 transition-colors truncate">
+                {match.homeTeam}
+              </span>
+            </div>
             {isLive && match.score && (
-              <span className="font-mono font-black text-lg text-emerald-400 bg-slate-800/80 px-2 py-0.5 rounded">
+              <span className="font-mono font-black text-lg text-emerald-400 bg-slate-800/80 px-2 py-0.5 rounded flex-shrink-0">
                 {match.score.home}
               </span>
             )}
           </div>
 
           {/* vs Separator */}
-          <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wider pl-0.5">
-            vs
+          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider pl-8 flex items-center gap-2">
+            <span>vs</span>
+            {match.providerName && (
+              <span className="text-[9px] font-normal text-emerald-400/80 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
+                Live Feed
+              </span>
+            )}
           </div>
 
           {/* Away Team */}
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-bold text-base sm:text-lg text-white group-hover:text-emerald-400 transition-colors">
-              {match.awayTeam}
-            </span>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 truncate">
+              {match.awayLogo ? (
+                <img
+                  src={match.awayLogo}
+                  alt={match.awayTeam}
+                  className="w-6 h-6 object-contain flex-shrink-0 rounded-full bg-slate-800/80 p-0.5 border border-slate-700/50"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
+                />
+              ) : (
+                <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center text-[10px] font-bold text-slate-400 flex-shrink-0">
+                  {match.awayTeamShort || match.awayTeam.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <span className="font-bold text-base sm:text-lg text-white group-hover:text-emerald-400 transition-colors truncate">
+                {match.awayTeam}
+              </span>
+            </div>
             {isLive && match.score && (
-              <span className="font-mono font-black text-lg text-emerald-400 bg-slate-800/80 px-2 py-0.5 rounded">
+              <span className="font-mono font-black text-lg text-emerald-400 bg-slate-800/80 px-2 py-0.5 rounded flex-shrink-0">
                 {match.score.away}
               </span>
             )}
@@ -109,7 +144,7 @@ export const MatchCard: React.FC<MatchCardProps> = ({
             e.stopPropagation();
             onOpenDetails(match);
           }}
-          className="text-slate-500 group-hover:text-slate-300 p-2 transition-colors cursor-pointer"
+          className="text-slate-500 group-hover:text-slate-300 p-2 transition-colors cursor-pointer flex-shrink-0"
           title="View Markets"
         >
           <ChevronRight className="w-5 h-5" />

@@ -118,6 +118,9 @@ export interface Match {
   awayTeam: string;
   homeTeamShort?: string;
   awayTeamShort?: string;
+  homeLogo?: string;
+  awayLogo?: string;
+  providerName?: string;
   startTime: string; // ISO string
   status: MatchStatus;
   score?: MatchScore;
@@ -366,4 +369,34 @@ export interface SportsProviderStatus {
   selectedBookmaker: string;
   availableBookmakers: Array<{ key: string; title: string }>;
   syncInProgress: boolean;
+}
+
+export interface OddsApiDiagnosticResult {
+  timestamp: string;
+  provider: string;
+  endpoint: string;
+  targetUrl: string;
+  sanitizedUrl: string;
+  httpStatus: number | null;
+  statusText: string | null;
+  headers: Record<string, string>;
+  responseBody: string | null;
+  errorBody: string | null;
+  parsedError: any | null;
+  isError: boolean;
+  success: boolean;
+  durationMs: number;
+  apiKeyConfigured: boolean;
+  maskedApiKey: string;
+  requestsRemaining?: string | null;
+  requestsUsed?: string | null;
+  requestsLast?: string | null;
+  quotaInfo?: {
+    isExhausted: boolean;
+    remaining: string | null;
+    used: string | null;
+    lastCost: string | null;
+    errorCode: string | null;
+    message: string | null;
+  };
 }

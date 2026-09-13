@@ -674,6 +674,27 @@ async function startServer() {
     }
   });
 
+  // Diagnostic Endpoint: Fetch raw response from https://api.the-odds-api.com/v4/sports/soccer_epl_bp/odds?apiKey=HIDDEN
+  app.get('/api/admin/sports-data/diagnose-odds', async (req: Request, res: Response) => {
+    try {
+      const sportKey = (req.query.sportKey as string) || 'soccer_epl_bp';
+      const result = await sportsApiService.diagnoseOddsFetch(sportKey);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/sports-data/diagnose-odds', async (req: Request, res: Response) => {
+    try {
+      const sportKey = req.body?.sportKey || (req.query.sportKey as string) || 'soccer_epl_bp';
+      const result = await sportsApiService.diagnoseOddsFetch(sportKey);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
   // Admin Internal Odds-Source Selection Layer
   app.get('/api/admin/sports-data/bookmaker', (req: Request, res: Response) => {
     res.json({
@@ -728,6 +749,43 @@ async function startServer() {
         entityType: 'sports_provider',
         entityId: 'the-odds-api',
         details: `Updated sports provider API key to ${result.maskedKey}`,
+        createdAt: new Date().toISOString()
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // Admin Switch Sports Data Provider (ESPN Live vs The Odds API vs API-Football)
+  app.get('/api/admin/sports-data/provider', (req: Request, res: Response) => {
+    res.json({
+      activeProvider: sportsApiService.getStats().providerName,
+      providerKey: sportsApiService.getActiveProvider(),
+      isConfigured: sportsApiService.getStats().isConfigured,
+      supportedProviders: [
+        { key: 'espn', name: 'ESPN Official Live Sports Feed (Free & Real-Time, No API Key Required)', description: 'Direct live scores, real teams, logos, and real-time fixtures' },
+        { key: 'the-odds-api', name: 'The Odds API (Commercial Feed)', description: 'Requires active key and quota' },
+        { key: 'api-football', name: 'API-Football (RapidAPI)', description: 'Requires RapidAPI key' }
+      ]
+    });
+  });
+
+  app.post('/api/admin/sports-data/provider', async (req: Request, res: Response) => {
+    try {
+      const { provider } = req.body;
+      if (!provider || typeof provider !== 'string') {
+        return res.status(400).json({ success: false, message: 'Provider parameter required' });
+      }
+      const result = await sportsApiService.setProvider(provider);
+      auditLogs.unshift({
+        id: `audit-${Date.now()}`,
+        actorId: 'adm-provider',
+        actorEmail: currentUser.email,
+        action: 'SPORTS_PROVIDER_SWITCHED',
+        entityType: 'sports_provider',
+        entityId: provider,
+        details: `Switched sports provider to ${result.activeProvider}`,
         createdAt: new Date().toISOString()
       });
       res.json(result);

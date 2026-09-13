@@ -9,9 +9,36 @@
 
 import fs from 'fs';
 import path from 'path';
-import { MatchResult } from '../../src/types.ts';
+import type { MatchResult } from '../../src/types';
+import { EspnSportsProvider } from './espnSportsProvider';
 
 const CONFIG_FILE = path.join(process.cwd(), 'sports-config.json');
+
+export function getEffectiveSportsProvider(): string {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+      if (data.sportsApiProvider && typeof data.sportsApiProvider === 'string') {
+        return data.sportsApiProvider.trim().toLowerCase();
+      }
+    }
+  } catch (err) {}
+  return (process.env.SPORTS_API_PROVIDER || 'espn').trim().toLowerCase();
+}
+
+export function saveEffectiveSportsProvider(provider: string): void {
+  try {
+    let existing: any = {};
+    if (fs.existsSync(CONFIG_FILE)) {
+      existing = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+    }
+    existing.sportsApiProvider = provider.trim();
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(existing, null, 2), 'utf-8');
+    process.env.SPORTS_API_PROVIDER = provider.trim();
+  } catch (err) {
+    console.error('[SportsConfig] Failed to save provider config:', err);
+  }
+}
 
 export function getEffectiveSportsApiKey(): string {
   if (process.env.SPORTS_API_KEY && process.env.SPORTS_API_KEY.trim().length > 5) {
@@ -106,6 +133,9 @@ export interface NormalizedMatch {
   awayTeam: string;
   homeTeamShort?: string;
   awayTeamShort?: string;
+  homeLogo?: string;
+  awayLogo?: string;
+  providerName?: string;
   startTime: string; // ISO 8601
   status: 'scheduled' | 'live' | 'finished' | 'cancelled' | 'postponed' | 'suspended';
   score?: {
@@ -264,6 +294,7 @@ export class TheOddsApiProvider implements ISportsProvider {
   private cache: Map<string, { data: any; expiresAt: number }> = new Map();
   private quotaExhausted: boolean = false;
   private authError: string | null = null;
+  private espnFallback: EspnSportsProvider = new EspnSportsProvider();
 
   // Prioritized European Football competitions requested by user
   public readonly prioritizedFootballCompetitions = [
@@ -705,8 +736,12 @@ export class TheOddsApiProvider implements ISportsProvider {
     const cached = this.getCached<NormalizedMatch[]>(cacheKey);
     if (cached) return cached;
 
-    // If quota is already exhausted on the odds endpoint, immediately fetch real-time fixtures from /events
+    // If quota is already exhausted on the odds endpoint, immediately stream 100% real fixtures from ESPN
     if (this.quotaExhausted) {
+      try {
+        const espnMatches = await this.espnFallback.fetchUpcomingMatches(providerSportKey);
+        if (espnMatches.length > 0) return espnMatches;
+      } catch {}
       return this.fetchEventsOnly(providerSportKey);
     }
 
@@ -729,7 +764,11 @@ export class TheOddsApiProvider implements ISportsProvider {
 
         if (isQuota) {
           this.quotaExhausted = true;
-          console.warn(`[TheOddsApiProvider] /odds quota reached for ${providerSportKey}. Seamlessly switching to live real-time events feed.`);
+          console.warn(`[TheOddsApiProvider] /odds quota reached for ${providerSportKey}. Seamlessly switching to live real-time ESPN sports feed.`);
+          try {
+            const espnMatches = await this.espnFallback.fetchUpcomingMatches(providerSportKey);
+            if (espnMatches.length > 0) return espnMatches;
+          } catch {}
           return await this.fetchEventsOnly(providerSportKey);
         }
 
@@ -766,6 +805,9 @@ export class TheOddsApiProvider implements ISportsProvider {
    * Bundesliga, Ligue 1, UEFA Europa League, and active leagues.
    */
   async fetchPrioritizedFootballMatches(activeKeys?: string[]): Promise<NormalizedMatch[]> {
+    if (this.quotaExhausted) {
+      return this.espnFallback.fetchPrioritizedFootballMatches();
+    }
     if (!this.isConfigured()) return [];
 
     const allMatches: NormalizedMatch[] = [];
@@ -795,6 +837,9 @@ export class TheOddsApiProvider implements ISportsProvider {
    * Connects major world leagues including NBA Basketball, NFL Football, MLB Baseball, and NHL Ice Hockey.
    */
   async fetchMultiSportMatches(): Promise<NormalizedMatch[]> {
+    if (this.quotaExhausted) {
+      return this.espnFallback.fetchMultiSportMatches();
+    }
     if (!this.isConfigured()) return [];
 
     const multiSports = [
@@ -821,7 +866,10 @@ export class TheOddsApiProvider implements ISportsProvider {
   }
 
   async fetchLiveMatches(sportSlug: string = 'soccer_epl'): Promise<NormalizedMatch[]> {
-    if (!this.isConfigured() || this.quotaExhausted) return [];
+    if (this.quotaExhausted) {
+      return this.espnFallback.fetchLiveMatches(sportSlug);
+    }
+    if (!this.isConfigured()) return [];
 
     const providerSportKey = sportSlug === 'football' ? 'soccer_epl' : sportSlug;
     const cacheKey = `scores_${providerSportKey}`;
@@ -884,7 +932,10 @@ export class TheOddsApiProvider implements ISportsProvider {
   }
 
   async fetchFinishedMatches(sportSlug?: string): Promise<NormalizedMatch[]> {
-    if (!this.isConfigured() || this.quotaExhausted) return [];
+    if (this.quotaExhausted) {
+      return this.espnFallback.fetchFinishedMatches(sportSlug);
+    }
+    if (!this.isConfigured()) return [];
     const providerSportKey = sportSlug || 'soccer_epl';
     const cacheKey = `finished_${providerSportKey}`;
     const cached = this.getCached<NormalizedMatch[]>(cacheKey);
@@ -1458,15 +1509,25 @@ export class ApiFootballProvider implements ISportsProvider {
 // ---------------------------------------------------------------------------
 export class SportsProviderFactory {
   static createProvider(): ISportsProvider {
-    const providerType = (process.env.SPORTS_API_PROVIDER || 'the-odds-api').toLowerCase().trim();
+    const rawProviderType = getEffectiveSportsProvider();
     const apiKey = getEffectiveSportsApiKey();
     const baseUrl = process.env.SPORTS_API_BASE_URL;
 
-    if (providerType === 'api-football' || providerType === 'apifootball' || providerType === 'rapidapi') {
+    // Explicit ESPN provider (Zero-key, 100% Real Live Matches & Scores)
+    if (rawProviderType === 'espn' || rawProviderType === 'espn-live' || rawProviderType === 'free-live') {
+      return new EspnSportsProvider();
+    }
+
+    if (rawProviderType === 'api-football' || rawProviderType === 'apifootball' || rawProviderType === 'rapidapi') {
       return new ApiFootballProvider(apiKey, baseUrl);
     }
 
-    // Default to The Odds API
-    return new TheOddsApiProvider(apiKey, baseUrl);
+    // Default to The Odds API if specified and key is provided
+    if (rawProviderType === 'the-odds-api' && apiKey && apiKey.length > 5) {
+      return new TheOddsApiProvider(apiKey, baseUrl);
+    }
+
+    // If no external key exists or default mode, deliver authentic sports via ESPN Live Provider
+    return new EspnSportsProvider();
   }
 }
