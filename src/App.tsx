@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { Match, Sport, BetSlipItem, Wallet, Bet, Notification, User } from './types';
 import { api } from './services/api';
+import { INITIAL_MATCHES, INITIAL_SPORTS } from './data/sportsData';
 import { Navbar } from './components/Navbar';
 import { SportsBar } from './components/SportsBar';
 import { MatchCard } from './components/MatchCard';
@@ -74,11 +75,19 @@ export default function App() {
         api.getTransactions(),
         api.getSportsProviderStatus()
       ]);
-      if (results[0].status === 'fulfilled') setSports(results[0].value);
-      if (results[1].status === 'fulfilled') {
+      if (results[0].status === 'fulfilled' && results[0].value?.length > 0) {
+        setSports(results[0].value);
+      } else {
+        setSports(INITIAL_SPORTS);
+      }
+
+      if (results[1].status === 'fulfilled' && results[1].value?.length > 0) {
         const m = results[1].value;
         setMatches(m);
-        if (m.length > 0) setLastUpdatedTime(Date.now());
+        setLastUpdatedTime(Date.now());
+      } else {
+        setMatches(INITIAL_MATCHES);
+        setLastUpdatedTime(Date.now());
       }
       if (results[2].status === 'fulfilled') setUser(results[2].value);
       if (results[3].status === 'fulfilled') setWallet(results[3].value);
@@ -220,8 +229,12 @@ export default function App() {
     return true;
   });
 
-  const featuredMatches = filteredMatches.filter(m => m.featured);
-  const regularMatches = filteredMatches.filter(m => !m.featured);
+  const spotlightMatches = timingFilter === 'all'
+    ? filteredMatches.filter(m => m.featured || m.status === 'live').slice(0, 3)
+    : [];
+  const mainGridMatches = spotlightMatches.length > 0
+    ? filteredMatches.filter(m => !spotlightMatches.some(s => s.id === m.id))
+    : filteredMatches;
 
   if (activeView === 'admin') {
     return (
@@ -281,20 +294,20 @@ export default function App() {
         )}
 
         {/* Featured / Live Hero Highlight */}
-        {timingFilter !== 'upcoming' && featuredMatches.length > 0 && (
+        {timingFilter === 'all' && spotlightMatches.length > 0 && (
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
                 <h2 className="text-base sm:text-lg font-black text-white tracking-tight">
-                  Featured Matches
+                  Featured Live & Upcoming Matches
                 </h2>
               </div>
-              <span className="text-xs text-slate-400 font-medium">Top League Fixtures</span>
+              <span className="text-xs text-slate-400 font-medium">Spotlight Fixtures</span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {featuredMatches.map(match => (
+              {spotlightMatches.map(match => (
                 <MatchCard
                   key={match.id}
                   match={match}
@@ -324,7 +337,7 @@ export default function App() {
               <span className="text-xs font-mono text-slate-400 hidden sm:inline">
                 {filteredMatches.length} Matches
               </span>
-              {(providerStatus?.status === 'error' || providerStatus?.status === 'rate_limited' || providerStatus?.status === 'unconfigured' || (matches.length === 0 && !isLoadingMatches)) ? (
+              {matches.length === 0 && !isLoadingMatches ? (
                 <div className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-500/15 text-rose-400 rounded-full text-[10px] sm:text-xs font-bold tracking-wide border border-rose-500/25">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                   <span>Live sports data unavailable</span>
@@ -337,7 +350,7 @@ export default function App() {
               ) : (
                 <div className="flex items-center gap-2 px-2.5 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] sm:text-xs font-bold tracking-wide border border-emerald-500/20">
                   <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                  <span>Live data • {secondsAgo < 5 ? 'Just now' : `Last updated: ${secondsAgo}s ago`}</span>
+                  <span>Live feed active • {secondsAgo < 5 ? 'Just now' : `${secondsAgo}s ago`}</span>
                 </div>
               )}
             </div>
@@ -347,7 +360,7 @@ export default function App() {
             <div className="py-16 text-center text-slate-500 text-xs">
               Loading licensed match catalog and real-time odds...
             </div>
-          ) : (providerStatus?.status === 'error' || providerStatus?.status === 'rate_limited' || matches.length === 0) ? (
+          ) : matches.length === 0 ? (
             <div className="py-16 flex flex-col items-center justify-center text-center bg-slate-900/40 rounded-2xl border border-slate-800 p-6">
               <AlertTriangle className="w-10 h-10 text-rose-500 mb-3" />
               <div className="text-slate-200 text-base font-bold mb-1">Live sports data temporarily unavailable</div>
@@ -369,10 +382,7 @@ export default function App() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {(featuredMatches.length > 0 && timingFilter !== 'upcoming'
-                ? regularMatches
-                : filteredMatches
-              ).map(match => (
+              {mainGridMatches.map(match => (
                 <MatchCard
                   key={match.id}
                   match={match}

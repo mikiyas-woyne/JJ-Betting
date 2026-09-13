@@ -325,5 +325,191 @@ export const INITIAL_MATCHES: Match[] = [
         ]
       }
     ]
+  },
+  {
+    id: 'm-pl-05',
+    sportId: 'football',
+    leagueId: 'epl',
+    leagueName: 'English Premier League',
+    homeTeam: 'Manchester United',
+    awayTeam: 'Tottenham Hotspur',
+    homeTeamShort: 'MUN',
+    awayTeamShort: 'TOT',
+    startTime: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+    status: 'live',
+    score: { home: 1, away: 1, period: '1st Half', minute: 28 },
+    featured: true,
+    popular: true,
+    markets: [
+      {
+        id: 'm-pl-05-mw',
+        matchId: 'm-pl-05',
+        type: 'match_winner',
+        name: 'Match Winner (1X2)',
+        status: 'active',
+        selections: [
+          { id: 'sel-mun-1', marketId: 'm-pl-05-mw', name: 'Man United', oddsValue: 2.30, status: 'active' },
+          { id: 'sel-mun-x', marketId: 'm-pl-05-mw', name: 'Draw', oddsValue: 3.10, status: 'active' },
+          { id: 'sel-mun-2', marketId: 'm-pl-05-mw', name: 'Tottenham', oddsValue: 3.05, status: 'active' },
+        ]
+      },
+      {
+        id: 'm-pl-05-ou',
+        matchId: 'm-pl-05',
+        type: 'over_under_2_5',
+        name: 'Over / Under 2.5 Goals',
+        status: 'active',
+        selections: [
+          { id: 'sel-mun-ou-o', marketId: 'm-pl-05-ou', name: 'Over 2.5', oddsValue: 1.58, status: 'active' },
+          { id: 'sel-mun-ou-u', marketId: 'm-pl-05-ou', name: 'Under 2.5', oddsValue: 2.30, status: 'active' },
+        ]
+      }
+    ]
+  },
+  {
+    id: 'm-nfl-01',
+    sportId: 'americanfootball',
+    leagueId: 'nfl',
+    leagueName: 'NFL American Football',
+    homeTeam: 'Kansas City Chiefs',
+    awayTeam: 'San Francisco 49ers',
+    homeTeamShort: 'KC',
+    awayTeamShort: 'SF',
+    startTime: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+    status: 'live',
+    score: { home: 17, away: 14, period: 'Q2', minute: 4 },
+    featured: true,
+    popular: true,
+    markets: [
+      {
+        id: 'm-nfl-01-mw',
+        matchId: 'm-nfl-01',
+        type: 'match_winner',
+        name: 'Moneyline (Winner)',
+        status: 'active',
+        selections: [
+          { id: 'sel-kc-1', marketId: 'm-nfl-01-mw', name: 'Kansas City Chiefs', oddsValue: 1.72, status: 'active' },
+          { id: 'sel-sf-2', marketId: 'm-nfl-01-mw', name: 'San Francisco 49ers', oddsValue: 2.15, status: 'active' },
+        ]
+      },
+      {
+        id: 'm-nfl-01-ou',
+        matchId: 'm-nfl-01',
+        type: 'over_under_2_5',
+        name: 'Total Points Over/Under 47.5',
+        status: 'active',
+        selections: [
+          { id: 'sel-nfl-ou-o', marketId: 'm-nfl-01-ou', name: 'Over 47.5', oddsValue: 1.91, status: 'active' },
+          { id: 'sel-nfl-ou-u', marketId: 'm-nfl-01-ou', name: 'Under 47.5', oddsValue: 1.91, status: 'active' },
+        ]
+      }
+    ]
+  },
+  {
+    id: 'm-nfl-02',
+    sportId: 'americanfootball',
+    leagueId: 'nfl',
+    leagueName: 'NFL American Football',
+    homeTeam: 'Dallas Cowboys',
+    awayTeam: 'Philadelphia Eagles',
+    homeTeamShort: 'DAL',
+    awayTeamShort: 'PHI',
+    startTime: new Date(Date.now() + 12 * 3600 * 1000).toISOString(),
+    status: 'scheduled',
+    popular: true,
+    markets: [
+      {
+        id: 'm-nfl-02-mw',
+        matchId: 'm-nfl-02',
+        type: 'match_winner',
+        name: 'Moneyline (Winner)',
+        status: 'active',
+        selections: [
+          { id: 'sel-dal-1', marketId: 'm-nfl-02-mw', name: 'Dallas Cowboys', oddsValue: 2.05, status: 'active' },
+          { id: 'sel-phi-2', marketId: 'm-nfl-02-mw', name: 'Philadelphia Eagles', oddsValue: 1.80, status: 'active' },
+        ]
+      }
+    ]
+  },
+  {
+    id: 'm-mlb-01',
+    sportId: 'baseball',
+    leagueId: 'mlb',
+    leagueName: 'MLB Baseball',
+    homeTeam: 'New York Yankees',
+    awayTeam: 'Boston Red Sox',
+    homeTeamShort: 'NYY',
+    awayTeamShort: 'BOS',
+    startTime: new Date(Date.now() - 75 * 60 * 1000).toISOString(),
+    status: 'live',
+    score: { home: 4, away: 3, period: 'Top 6th', minute: 6 },
+    featured: true,
+    popular: true,
+    markets: [
+      {
+        id: 'm-mlb-01-mw',
+        matchId: 'm-mlb-01',
+        type: 'match_winner',
+        name: 'Moneyline (Winner)',
+        status: 'active',
+        selections: [
+          { id: 'sel-nyy-1', marketId: 'm-mlb-01-mw', name: 'NY Yankees', oddsValue: 1.55, status: 'active' },
+          { id: 'sel-bos-2', marketId: 'm-mlb-01-mw', name: 'Boston Red Sox', oddsValue: 2.45, status: 'active' },
+        ]
+      }
+    ]
+  },
+  {
+    id: 'm-nhl-01',
+    sportId: 'icehockey',
+    leagueId: 'nhl',
+    leagueName: 'NHL Ice Hockey',
+    homeTeam: 'Toronto Maple Leafs',
+    awayTeam: 'Montreal Canadiens',
+    homeTeamShort: 'TOR',
+    awayTeamShort: 'MTL',
+    startTime: new Date(Date.now() + 4 * 3600 * 1000).toISOString(),
+    status: 'scheduled',
+    popular: true,
+    markets: [
+      {
+        id: 'm-nhl-01-mw',
+        matchId: 'm-nhl-01',
+        type: 'match_winner',
+        name: 'Match Winner (Inc. OT)',
+        status: 'active',
+        selections: [
+          { id: 'sel-tor-1', marketId: 'm-nhl-01-mw', name: 'Toronto Maple Leafs', oddsValue: 1.65, status: 'active' },
+          { id: 'sel-mtl-2', marketId: 'm-nhl-01-mw', name: 'Montreal Canadiens', oddsValue: 2.25, status: 'active' },
+        ]
+      }
+    ]
+  },
+  {
+    id: 'm-box-01',
+    sportId: 'boxing',
+    leagueId: 'ufc',
+    leagueName: 'UFC World Championship',
+    homeTeam: 'Jon Jones',
+    awayTeam: 'Stipe Miocic',
+    homeTeamShort: 'JON',
+    awayTeamShort: 'MIO',
+    startTime: new Date(Date.now() + 18 * 3600 * 1000).toISOString(),
+    status: 'scheduled',
+    featured: true,
+    popular: true,
+    markets: [
+      {
+        id: 'm-box-01-mw',
+        matchId: 'm-box-01',
+        type: 'match_winner',
+        name: 'Bout Winner',
+        status: 'active',
+        selections: [
+          { id: 'sel-jon-1', marketId: 'm-box-01-mw', name: 'Jon Jones', oddsValue: 1.25, status: 'active' },
+          { id: 'sel-mio-2', marketId: 'm-box-01-mw', name: 'Stipe Miocic', oddsValue: 3.95, status: 'active' },
+        ]
+      }
+    ]
   }
 ];

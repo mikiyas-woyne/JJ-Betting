@@ -192,7 +192,9 @@ let settlements: Settlement[] = [];
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.NODE_ENV === 'production' && process.env.PORT
+    ? parseInt(process.env.PORT, 10)
+    : 3000;
 
   app.use(express.json({ limit: '10mb' }));
 
@@ -1036,10 +1038,10 @@ async function startServer() {
       .then(r => console.log(`[SportsSync] Initial sync: ${r.message}`))
       .catch(e => console.warn(`[SportsSync] Initial sync notice: ${e.message}`));
 
-    // Polling interval for live scores (60 seconds)
+    // Polling interval for live scores and dynamic in-play ticker (15 seconds)
     setInterval(() => {
       sportsApiService.syncLiveScores().catch(() => {});
-    }, 60000);
+    }, 15000);
   });
 }
 
