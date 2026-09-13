@@ -1,0 +1,186 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Registered player account with KYC status, role, and responsible gambling constraints.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["customer", "admin", "odds_trader", "compliance_officer"] },
+        "kycStatus": { "type": "string", "enum": ["unverified", "tier1_verified", "fully_verified"] },
+        "dailyDepositLimit": { "type": "number" },
+        "singleBetLimit": { "type": "number" },
+        "selfExclusionUntil": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "email", "role", "kycStatus", "createdAt"]
+    },
+    "Sport": {
+      "title": "Sport",
+      "description": "Category of sport offering betting markets.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "icon": { "type": "string" },
+        "priority": { "type": "number" }
+      },
+      "required": ["id", "name", "slug"]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "Sporting event with competitors, status, scores, and active betting markets.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sportId": { "type": "string" },
+        "leagueName": { "type": "string" },
+        "homeTeam": { "type": "string" },
+        "awayTeam": { "type": "string" },
+        "startTime": { "type": "string" },
+        "status": { "type": "string", "enum": ["scheduled", "live", "finished", "cancelled", "suspended"] },
+        "score": { "type": "string" },
+        "period": { "type": "string" },
+        "minute": { "type": "number" },
+        "featured": { "type": "boolean" },
+        "popular": { "type": "boolean" }
+      },
+      "required": ["id", "sportId", "homeTeam", "awayTeam", "status", "startTime"]
+    },
+    "Market": {
+      "title": "Market",
+      "description": "Betting market offered on an individual match.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "matchId": { "type": "string" },
+        "type": { "type": "string" },
+        "name": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "suspended", "settled"] }
+      },
+      "required": ["id", "matchId", "type", "name", "status"]
+    },
+    "Bet": {
+      "title": "Bet",
+      "description": "User placed bet ticket with verified server odds and potential payout.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["single", "multiple"] },
+        "stake": { "type": "number" },
+        "totalOdds": { "type": "number" },
+        "potentialReturn": { "type": "number" },
+        "currency": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "won", "lost", "void", "cancelled"] },
+        "createdAt": { "type": "string" },
+        "settledAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "type", "stake", "totalOdds", "potentialReturn", "status", "createdAt"]
+    },
+    "Wallet": {
+      "title": "Wallet",
+      "description": "Customer wallet account with ledger balance.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "currency": { "type": "string" },
+        "availableBalance": { "type": "number" },
+        "lockedBalance": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "currency", "availableBalance"]
+    },
+    "WalletTransaction": {
+      "title": "WalletTransaction",
+      "description": "Auditable financial ledger entry for debits, credits, and withdrawals.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "type": { "type": "string", "enum": ["deposit", "withdrawal", "bet_placement", "bet_payout", "bet_refund", "adjustment"] },
+        "amount": { "type": "number" },
+        "balanceBefore": { "type": "number" },
+        "balanceAfter": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "completed", "failed", "reversed"] },
+        "referenceId": { "type": "string" },
+        "description": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userId", "type", "amount", "status", "createdAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "System security and administrative audit record.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "actorId": { "type": "string" },
+        "action": { "type": "string" },
+        "entityType": { "type": "string" },
+        "entityId": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "actorId", "action", "createdAt"]
+    },
+    "Deposit": {
+      "title": "Deposit",
+      "description": "Manual player deposit request awaiting administrative verification and ledger crediting.",
+      "type": "object",
+      "properties": {
+        "depositId": { "type": "string" },
+        "userId": { "type": "string" },
+        "username": { "type": "string" },
+        "paymentMethod": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "screenshotUrl": { "type": "string" },
+        "note": { "type": "string" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+        "createdAt": { "type": "string" },
+        "reviewedAt": { "type": "string" },
+        "reviewedBy": { "type": "string" },
+        "adminNote": { "type": "string" }
+      },
+      "required": ["depositId", "userId", "username", "paymentMethod", "amount", "currency", "screenshotUrl", "status", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Individual player profiles and configuration"
+    },
+    "/sports/{sportId}": {
+      "schema": "Sport",
+      "description": "Sports catalog available on the platform"
+    },
+    "/matches/{matchId}": {
+      "schema": "Match",
+      "description": "Sporting events catalog with real-time status"
+    },
+    "/bets/{betId}": {
+      "schema": "Bet",
+      "description": "Wagers placed by users"
+    },
+    "/wallets/{userId}": {
+      "schema": "Wallet",
+      "description": "User ledger wallets"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "WalletTransaction",
+      "description": "Immutable financial transaction records"
+    },
+    "/deposits/{depositId}": {
+      "schema": "Deposit",
+      "description": "Manual deposit requests awaiting admin verification"
+    },
+    "/audit_logs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Administrative and regulatory audit logs"
+    }
+  }
+}

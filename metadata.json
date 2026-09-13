@@ -1,0 +1,6 @@
+{
+  "name": "Apex Sportsbook",
+  "description": "A production-quality licensed sportsbook web application featuring real-time odds, server-side bet validation, financial ledger transactions, responsible gambling limits, and an administrative control suite.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
