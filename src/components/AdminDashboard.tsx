@@ -23,7 +23,8 @@ import {
   WifiOff,
   ExternalLink,
   Loader2,
-  ArrowDownCircle
+  ArrowDownCircle,
+  Key
 } from 'lucide-react';
 import { Match, Bet, WalletTransaction, AuditLog } from '../types';
 import { api } from '../services/api';
@@ -61,6 +62,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [isUpdatingBookmaker, setIsUpdatingBookmaker] = useState<boolean>(false);
   const [bookmakerUpdateMsg, setBookmakerUpdateMsg] = useState<string | null>(null);
 
+  // Sports API Key State
+  const [apiKeyInput, setApiKeyInput] = useState<string>('');
+  const [maskedKey, setMaskedKey] = useState<string>('');
+  const [isUpdatingKey, setIsUpdatingKey] = useState<boolean>(false);
+  const [keyUpdateMsg, setKeyUpdateMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   // Settlement selection states
   const [selectedMatchId, setSelectedMatchId] = useState<string>(matches[0]?.id || '');
   const [selectedMarketId, setSelectedMarketId] = useState<string>('');
@@ -84,8 +91,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           available: stats.availableBookmakers
         });
       }
+      api.getSportsApiKeyStatus().then(k => {
+        if (k.maskedKey) setMaskedKey(k.maskedKey);
+      }).catch(() => {});
     } catch (err) {
       console.error('Failed to load sports provider stats:', err);
+    }
+  };
+
+  const handleUpdateApiKey = async () => {
+    if (!apiKeyInput.trim()) return;
+    setIsUpdatingKey(true);
+    setKeyUpdateMsg(null);
+    try {
+      const res = await api.updateSportsApiKey(apiKeyInput.trim());
+      setMaskedKey(res.maskedKey);
+      setApiKeyInput('');
+      setKeyUpdateMsg({ type: 'success', text: res.message });
+      await loadProviderStats();
+      onRefreshMatches();
+    } catch (err: any) {
+      setKeyUpdateMsg({ type: 'error', text: err.message || 'Failed to update API key' });
+    } finally {
+      setIsUpdatingKey(false);
     }
   };
 
@@ -175,14 +203,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Update selected market when match changes
   const activeMatch = matches.find(m => m.id === selectedMatchId) || matches[0];
   useEffect(() => {
-    if (activeMatch && activeMatch.markets.length > 0) {
+    if (activeMatch && activeMatch.markets && activeMatch.markets.length > 0) {
       setSelectedMarketId(activeMatch.markets[0].id);
     }
   }, [selectedMatchId, activeMatch]);
 
-  const activeMarket = activeMatch?.markets.find(m => m.id === selectedMarketId);
+  const activeMarket = activeMatch?.markets?.find(m => m.id === selectedMarketId);
   useEffect(() => {
-    if (activeMarket && activeMarket.selections.length > 0) {
+    if (activeMarket && activeMarket.selections && activeMarket.selections.length > 0) {
       setWinningSelectionId(activeMarket.selections[0].id);
     }
   }, [selectedMarketId, activeMarket]);
@@ -487,8 +515,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <div>Updated: {m.updatedAt ? new Date(m.updatedAt).toLocaleTimeString() : 'N/A'}</div>
                       <div className="sm:col-span-2">Provider ID: {m.providerEventId || 'N/A'}</div>
                       <div className="sm:col-span-2">
-                        {m.markets.length} active markets • Primary Odds: {' '}
-                        {m.markets[0]?.selections.map(s => `${s.name}: ${s.oddsValue.toFixed(2)}`).join(' | ')}
+                        {m.markets?.length || 0} active markets • Primary Odds:{' '}
+                        {m.markets?.[0]?.selections?.map(s => `${s.name}: ${s.oddsValue.toFixed(2)}`).join(' | ') || 'N/A'}
                       </div>
                     </div>
                   </div>
@@ -864,6 +892,60 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     )}
                     <span>HTTP {connectionTestResult.details?.httpStatus || '200'}</span>
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* Provider API Key Configuration Card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
+                    <Key className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white">Live Sports Data API Key Configuration</h3>
+                    <p className="text-slate-400 text-xs">
+                      Persistent API credentials for The Odds API. Configured server-side for uninterrupted real-time feeds in production.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400 text-xs font-medium">Active Key:</span>
+                  <span className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-amber-400 font-mono font-bold text-xs">
+                    {maskedKey || 'Loaded from config'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input
+                  type="password"
+                  placeholder="Enter The Odds API Key (32 characters)..."
+                  value={apiKeyInput}
+                  onChange={(e) => setApiKeyInput(e.target.value)}
+                  className="flex-1 bg-slate-950 border border-slate-700/80 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-amber-400/80"
+                />
+                <button
+                  type="button"
+                  disabled={isUpdatingKey || !apiKeyInput.trim()}
+                  onClick={handleUpdateApiKey}
+                  className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isUpdatingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+                  <span>Save & Re-sync Feed</span>
+                </button>
+              </div>
+
+              {keyUpdateMsg && (
+                <div className={`p-3 rounded-xl border flex items-center gap-2 text-xs ${
+                  keyUpdateMsg.type === 'success'
+                    ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                    : 'bg-red-500/15 border-red-500/30 text-red-300'
+                }`}>
+                  {keyUpdateMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                  <span>{keyUpdateMsg.text}</span>
                 </div>
               )}
             </div>

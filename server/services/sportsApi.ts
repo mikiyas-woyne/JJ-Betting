@@ -12,7 +12,9 @@ import {
   SportsProviderFactory,
   ProviderConnectionTest,
   OddsSourceSelector,
-  TheOddsApiProvider
+  TheOddsApiProvider,
+  getEffectiveSportsApiKey,
+  saveEffectiveSportsApiKey
 } from '../providers/sportsProvider.ts';
 import { oddsService } from './oddsService.ts';
 import { INITIAL_MATCHES, INITIAL_SPORTS } from '../../src/data/sportsData.ts';
@@ -261,6 +263,28 @@ export class SportsApiService {
   }
 
   /**
+   * Update the sports provider API key dynamically and persist to configuration
+   */
+  public async setApiKey(newKey: string): Promise<{ success: boolean; message: string; maskedKey: string }> {
+    saveEffectiveSportsApiKey(newKey);
+    this.reloadProvider();
+    const syncRes = await this.syncAll(true);
+    return {
+      success: syncRes.success,
+      message: `API Key updated. ${syncRes.message}`,
+      maskedKey: this.getMaskedApiKey()
+    };
+  }
+
+  public getMaskedApiKey(): string {
+    const rawApiKey = getEffectiveSportsApiKey();
+    if (rawApiKey.length > 8) {
+      return `${rawApiKey.slice(0, 4)}...${rawApiKey.slice(-4)} (${rawApiKey.length} chars)`;
+    }
+    return rawApiKey.length > 0 ? '***configured***' : 'Not configured';
+  }
+
+  /**
    * Server-side diagnostic function in the existing API service to log the raw HTTP response status,
    * headers, and specific error body received from 'https://api.the-odds-api.com/v4' when fetching events,
    * while explicitly masking the SPORTS_API_KEY.
@@ -268,7 +292,7 @@ export class SportsApiService {
    * @param sportKey - Sport slug to query (e.g. 'soccer_epl')
    */
   public async diagnoseEventsFetch(sportKey: string = 'soccer_epl'): Promise<OddsApiDiagnosticResult> {
-    const rawApiKey = (process.env.SPORTS_API_KEY || '').trim();
+    const rawApiKey = getEffectiveSportsApiKey();
     const rawBaseUrl = (process.env.SPORTS_API_BASE_URL || 'https://api.the-odds-api.com/v4').trim().replace(/\/$/, '');
     const cleanBase = rawBaseUrl.includes('the-odds-api.com') && !rawBaseUrl.endsWith('/v4')
       ? `${rawBaseUrl}/v4`
@@ -532,11 +556,12 @@ export class SportsApiService {
         }
 
         this.stats.lastFailedSync = new Date().toISOString();
-        this.matchesMap.clear();
-        oddsService.clear();
+        if (this.matchesMap.size === 0 && INITIAL_MATCHES && INITIAL_MATCHES.length > 0) {
+          this.seedInitialMatches(INITIAL_MATCHES);
+        }
         this.refreshStats();
 
-        console.info(`[SportsApi] Synchronized catalog: ${this.stats.statusMessage} (${this.matchesMap.size} matches active)`);
+        console.info(`[SportsApi] Synchronized catalog notice: ${this.stats.statusMessage} (${this.matchesMap.size} matches active)`);
 
         return {
           success: false,
@@ -594,8 +619,10 @@ export class SportsApiService {
         this.stats.statusMessage = 'Live sports data temporarily unavailable.';
       }
 
-      this.matchesMap.clear();
-      oddsService.clear();
+      // Preserve existing matches so the platform never displays a blank page during network hiccups
+      if (this.matchesMap.size === 0 && INITIAL_MATCHES && INITIAL_MATCHES.length > 0) {
+        this.seedInitialMatches(INITIAL_MATCHES);
+      }
       this.refreshStats();
 
       return {

@@ -383,6 +383,23 @@ export const api = {
     return json;
   },
 
+  async getSportsApiKeyStatus(): Promise<{ isConfigured: boolean; maskedKey: string; providerName: string }> {
+    const res = await fetch('/api/admin/sports-data/api-key');
+    if (!res.ok) throw new Error('Failed to fetch sports API key status');
+    return res.json();
+  },
+
+  async updateSportsApiKey(apiKey: string): Promise<{ success: boolean; message: string; maskedKey: string }> {
+    const res = await fetch('/api/admin/sports-data/api-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey })
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || 'Failed to update API key');
+    return json;
+  },
+
   // ----------------------------------------------------
   // MANUAL DEPOSIT VERIFICATION METHODS
   // ----------------------------------------------------

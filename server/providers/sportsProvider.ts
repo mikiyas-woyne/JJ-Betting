@@ -7,7 +7,42 @@
  * into our internal canonical sports betting data model.
  */
 
+import fs from 'fs';
+import path from 'path';
 import { MatchResult } from '../../src/types.ts';
+
+const CONFIG_FILE = path.join(process.cwd(), 'sports-config.json');
+
+export function getEffectiveSportsApiKey(): string {
+  if (process.env.SPORTS_API_KEY && process.env.SPORTS_API_KEY.trim().length > 5) {
+    return process.env.SPORTS_API_KEY.trim();
+  }
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+      if (data.sportsApiKey && data.sportsApiKey.trim().length > 5) {
+        return data.sportsApiKey.trim();
+      }
+    }
+  } catch (err) {
+    // ignore
+  }
+  return '898b994c5fad4a464a9f1c88a511c300';
+}
+
+export function saveEffectiveSportsApiKey(key: string): void {
+  try {
+    let existing: any = {};
+    if (fs.existsSync(CONFIG_FILE)) {
+      existing = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+    }
+    existing.sportsApiKey = key.trim();
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(existing, null, 2), 'utf-8');
+    process.env.SPORTS_API_KEY = key.trim();
+  } catch (err) {
+    console.error('[SportsConfig] Failed to save sports config:', err);
+  }
+}
 
 export interface NormalizedSport {
   id: string;
@@ -242,7 +277,8 @@ export class TheOddsApiProvider implements ISportsProvider {
   ];
 
   constructor(apiKey?: string, baseUrl?: string) {
-    this.apiKey = (apiKey || process.env.SPORTS_API_KEY || '').trim();
+    const keyCandidate = apiKey || getEffectiveSportsApiKey();
+    this.apiKey = keyCandidate.trim();
     let rawBase = (baseUrl || process.env.SPORTS_API_BASE_URL || 'https://api.the-odds-api.com/v4').trim().replace(/\/$/, '');
     // Ensure that if the base URL points to the-odds-api or is missing the /v4 path version, it is appended
     if (rawBase.includes('the-odds-api.com') && !rawBase.endsWith('/v4')) {
@@ -1423,7 +1459,7 @@ export class ApiFootballProvider implements ISportsProvider {
 export class SportsProviderFactory {
   static createProvider(): ISportsProvider {
     const providerType = (process.env.SPORTS_API_PROVIDER || 'the-odds-api').toLowerCase().trim();
-    const apiKey = process.env.SPORTS_API_KEY;
+    const apiKey = getEffectiveSportsApiKey();
     const baseUrl = process.env.SPORTS_API_BASE_URL;
 
     if (providerType === 'api-football' || providerType === 'apifootball' || providerType === 'rapidapi') {

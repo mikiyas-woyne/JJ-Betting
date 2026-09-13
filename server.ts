@@ -1,7 +1,8 @@
+import 'dotenv/config';
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { INITIAL_SPORTS } from './src/data/sportsData.ts';
+import { INITIAL_SPORTS, INITIAL_MATCHES } from './src/data/sportsData.ts';
 import {
   Bet,
   BetSelection,
@@ -27,6 +28,7 @@ import oddsRouter from './server/routes/odds.ts';
 // Seed initial baseline catalog into the centralized sports API & odds engine
 // Resilient fallback baseline: ensures the platform is immediately operational
 sportsApiService.seedInitialSports(INITIAL_SPORTS);
+sportsApiService.seedInitialMatches(INITIAL_MATCHES);
 
 // In-Memory Database (Server-authoritative ledger and state)
 let sports: Sport[] = [...INITIAL_SPORTS];
@@ -700,6 +702,38 @@ async function startServer() {
     });
   });
 
+  // Admin Sports API Key Configuration (with safe masking)
+  app.get('/api/admin/sports-data/api-key', (req: Request, res: Response) => {
+    res.json({
+      isConfigured: sportsApiService.getStats().isConfigured,
+      maskedKey: sportsApiService.getMaskedApiKey(),
+      providerName: sportsApiService.getStats().providerName
+    });
+  });
+
+  app.post('/api/admin/sports-data/api-key', async (req: Request, res: Response) => {
+    try {
+      const { apiKey } = req.body;
+      if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length < 6) {
+        return res.status(400).json({ success: false, message: 'Invalid API key provided. Must be at least 6 characters.' });
+      }
+      const result = await sportsApiService.setApiKey(apiKey.trim());
+      auditLogs.unshift({
+        id: `audit-${Date.now()}`,
+        actorId: 'adm-sports-key',
+        actorEmail: currentUser.email,
+        action: 'SPORTS_API_KEY_UPDATED',
+        entityType: 'sports_provider',
+        entityId: 'the-odds-api',
+        details: `Updated sports provider API key to ${result.maskedKey}`,
+        createdAt: new Date().toISOString()
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
   // Admin Update Match Status
   app.post('/api/admin/matches/status', (req: Request, res: Response) => {
     const { matchId, status } = req.body;
@@ -997,12 +1031,10 @@ async function startServer() {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Apex Sportsbook full-stack server running on http://0.0.0.0:${PORT}`);
 
-    // Background sports sync if provider is configured
-    if (process.env.SPORTS_API_KEY) {
-      sportsApiService.syncAll(true)
-        .then(r => console.log(`[SportsSync] Initial sync: ${r.message}`))
-        .catch(e => console.warn(`[SportsSync] Initial sync notice: ${e.message}`));
-    }
+    // Background sports sync on boot (loads live data immediately)
+    sportsApiService.syncAll(true)
+      .then(r => console.log(`[SportsSync] Initial sync: ${r.message}`))
+      .catch(e => console.warn(`[SportsSync] Initial sync notice: ${e.message}`));
 
     // Polling interval for live scores (60 seconds)
     setInterval(() => {

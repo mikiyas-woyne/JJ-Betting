@@ -20,8 +20,9 @@ export const MatchCard: React.FC<MatchCardProps> = ({
   const isFinished = match.status === 'finished';
 
   // Find primary Match Winner (1X2 or Moneyline) market
-  const primaryMarket = match.markets.find(m => m.type === 'match_winner') || match.markets[0];
-  const otherMarketsCount = match.markets.length - (primaryMarket ? 1 : 0);
+  const markets = match.markets || [];
+  const primaryMarket = markets.find(m => m.type === 'match_winner') || markets[0];
+  const otherMarketsCount = Math.max(0, markets.length - (primaryMarket ? 1 : 0));
 
   // Format kickoff time
   const matchDate = new Date(match.startTime);
@@ -130,12 +131,12 @@ export const MatchCard: React.FC<MatchCardProps> = ({
 
           <div
             className={`grid gap-2 ${
-              primaryMarket.selections.length === 2
+              (primaryMarket.selections?.length || 0) === 2
                 ? 'grid-cols-2'
                 : 'grid-cols-3'
             }`}
           >
-            {primaryMarket.selections.map(selection => {
+            {(primaryMarket.selections || []).map(selection => {
               const isSelected = betSlipItems.some(
                 b => b.matchId === match.id && b.selectionId === selection.id
               );

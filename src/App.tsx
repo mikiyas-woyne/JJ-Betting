@@ -99,11 +99,9 @@ export default function App() {
         api.getMatches(),
         api.getSportsProviderStatus()
       ]);
-      if (Array.isArray(matchesData)) {
+      if (Array.isArray(matchesData) && matchesData.length > 0) {
         setMatches(matchesData);
-        if (matchesData.length > 0) {
-          setLastUpdatedTime(Date.now());
-        }
+        setLastUpdatedTime(Date.now());
       }
       if (pStatus) {
         setProviderStatus(pStatus);

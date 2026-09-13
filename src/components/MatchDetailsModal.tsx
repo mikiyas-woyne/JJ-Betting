@@ -24,10 +24,11 @@ export const MatchDetailsModal: React.FC<MatchDetailsModalProps> = ({
   const isLive = match.status === 'live';
 
   // Primary markets to display cleanly
+  const allMarkets = match.markets || [];
   const mainMarketTypes = ['match_winner', 'over_under_2_5', 'both_teams_to_score'];
   const displayedMarkets = activeTab === 'main'
-    ? match.markets.filter(m => mainMarketTypes.includes(m.type))
-    : match.markets;
+    ? allMarkets.filter(m => mainMarketTypes.includes(m.type))
+    : allMarkets;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in duration-150">
@@ -94,7 +95,7 @@ export const MatchDetailsModal: React.FC<MatchDetailsModalProps> = ({
                   : 'text-slate-400 hover:text-white bg-slate-800/60'
               }`}
             >
-              More Markets ({match.markets.length})
+              More Markets ({allMarkets.length})
             </button>
           </div>
 
