@@ -58,7 +58,7 @@ export default function App() {
   const [isRetrying, setIsRetrying] = useState<boolean>(false);
 
   // Initial Data Fetch
-  const fetchAllData = async () => {
+  const fetchAllData = async (isInitialBoot: boolean = false) => {
     try {
       const results = await Promise.allSettled([
         api.getSports(),
@@ -89,8 +89,8 @@ export default function App() {
         console.log('[App Auth Callback DEBUG] Active JWT session restored successfully:', results[2].value.user.email);
         setUser(results[2].value.user);
         setWallet(results[2].value.wallet);
-      } else {
-        console.log('[App Auth Callback DEBUG] No active JWT session found. Inspecting Firebase Google OAuth redirect result...');
+      } else if (isInitialBoot) {
+        console.log('[App Auth Callback DEBUG] Initial boot check: Inspecting Firebase Google OAuth redirect result...');
         const redirectUser = await checkGoogleRedirectResult();
         console.log('[App Auth Callback DEBUG] checkGoogleRedirectResult output:', redirectUser);
 
@@ -111,7 +111,7 @@ export default function App() {
             setIsAuthOpen(true);
           }
         } else {
-          console.log('[App Auth Callback DEBUG] No redirect user detected. Opening Auth modal for user login.');
+          console.log('[App Auth Callback DEBUG] No redirect user detected on boot. Prompting Auth modal.');
           setIsAuthOpen(true);
         }
       }
@@ -136,7 +136,7 @@ export default function App() {
     } else {
       setActiveView('sportsbook');
     }
-    fetchAllData();
+    fetchAllData(false);
   };
 
   const handleLogout = () => {
@@ -180,7 +180,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchAllData();
+    fetchAllData(true);
     const interval = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         fetchMatchesDataSilently();

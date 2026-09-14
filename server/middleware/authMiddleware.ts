@@ -25,7 +25,10 @@ export const requireAuth = (req: AuthenticatedRequest, res: Response, next: Next
     return res.status(401).json({ error: 'Invalid or expired session token. Please log in again.' });
   }
 
-  const user = authService.getUserById(decoded.id);
+  let user = authService.getUserById(decoded.id);
+  if (!user && decoded.email) {
+    user = authService.getUserByEmail(decoded.email);
+  }
   if (!user) {
     return res.status(401).json({ error: 'Authenticated user account no longer exists.' });
   }
