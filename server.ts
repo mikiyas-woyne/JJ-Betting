@@ -24,6 +24,8 @@ import { resultSyncService } from './server/services/resultSyncService.ts';
 import sportsRouter from './server/routes/sports.ts';
 import matchesRouter from './server/routes/matches.ts';
 import oddsRouter from './server/routes/odds.ts';
+import { authService } from './server/services/authService.ts';
+import { requireAuth, requireAdmin, AuthenticatedRequest } from './server/middleware/authMiddleware.ts';
 
 // Seed initial baseline catalog into the centralized sports API & odds engine
 // Resilient fallback baseline: ensures the platform is immediately operational
@@ -211,53 +213,95 @@ async function startServer() {
   app.use('/api/matches', matchesRouter);
   app.use('/api/odds', oddsRouter);
 
-  // Get current user profile
-  app.get('/api/user/me', (req: Request, res: Response) => {
-    res.json(currentUser);
+  // ----------------------------------------------------
+  // AUTHENTICATION & AUTHORIZATION API ROUTES
+  // ----------------------------------------------------
+  app.post('/api/auth/signup', async (req: Request, res: Response) => {
+    try {
+      const { email, password, displayName, role } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+      }
+      const result = await authService.signup({ email, password, displayName, role });
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Signup failed' });
+    }
+  });
+
+  app.post('/api/auth/login', async (req: Request, res: Response) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
+      }
+      const result = await authService.login({ email, password });
+      res.json(result);
+    } catch (err: any) {
+      res.status(401).json({ error: err.message || 'Login failed' });
+    }
+  });
+
+  app.get('/api/auth/me', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+    const wallet = authService.getWallet(user.id);
+    res.json({ user, wallet });
+  });
+
+  // Get authenticated user profile
+  app.get('/api/user/me', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    res.json(req.user);
   });
 
   // Update Responsible Gambling Limits
-  app.post('/api/user/limits', (req: Request, res: Response) => {
+  app.post('/api/user/limits', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
     const { dailyDepositLimit, singleBetLimit, selfExclusionDays } = req.body;
 
     if (dailyDepositLimit !== undefined && dailyDepositLimit > 0) {
-      currentUser.dailyDepositLimit = Number(dailyDepositLimit);
+      user.dailyDepositLimit = Number(dailyDepositLimit);
     }
     if (singleBetLimit !== undefined && singleBetLimit > 0) {
-      currentUser.singleBetLimit = Number(singleBetLimit);
+      user.singleBetLimit = Number(singleBetLimit);
     }
     if (selfExclusionDays && Number(selfExclusionDays) > 0) {
       const exclusionDate = new Date();
       exclusionDate.setDate(exclusionDate.getDate() + Number(selfExclusionDays));
-      currentUser.selfExclusionUntil = exclusionDate.toISOString();
+      user.selfExclusionUntil = exclusionDate.toISOString();
     }
+
+    authService.updateUser(user.id, user);
 
     auditLogs.unshift({
       id: `audit-${Date.now()}`,
-      actorId: currentUser.id,
-      actorEmail: currentUser.email,
+      actorId: user.id,
+      actorEmail: user.email,
       action: 'RESPONSIBLE_GAMBLING_LIMITS_UPDATED',
       entityType: 'limits',
-      entityId: currentUser.id,
-      details: `Limits set: dailyDeposit=${currentUser.dailyDepositLimit}, singleBet=${currentUser.singleBetLimit}, selfExclusionUntil=${currentUser.selfExclusionUntil || 'none'}`,
+      entityId: user.id,
+      details: `Limits set: dailyDeposit=${user.dailyDepositLimit}, singleBet=${user.singleBetLimit}, selfExclusionUntil=${user.selfExclusionUntil || 'none'}`,
       createdAt: new Date().toISOString()
     });
 
-    res.json({ success: true, user: currentUser });
+    res.json({ success: true, user });
   });
 
-  // Get user wallet
-  app.get('/api/wallet', (req: Request, res: Response) => {
-    res.json(userWallet);
+  // Get authenticated user wallet
+  app.get('/api/wallet', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const wallet = authService.getWallet(req.user!.id);
+    res.json(wallet);
   });
 
-  // Get wallet transactions (Auditable Ledger)
-  app.get('/api/wallet/transactions', (req: Request, res: Response) => {
-    res.json(transactions);
+  // Get user wallet transactions (Auditable Ledger)
+  app.get('/api/wallet/transactions', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const userTxns = transactions.filter(t => t.userId === req.user!.id);
+    res.json(userTxns);
   });
 
   // Deposit API (Configurable provider abstraction)
-  app.post('/api/wallet/deposit', (req: Request, res: Response) => {
+  app.post('/api/wallet/deposit', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+    const wallet = authService.getWallet(user.id);
     const { amount, providerId, referenceId, paymentAccount } = req.body;
     const depositAmount = Number(amount);
 
@@ -265,32 +309,33 @@ async function startServer() {
       return res.status(400).json({ error: 'Invalid deposit amount' });
     }
 
-    if (currentUser.selfExclusionUntil && new Date(currentUser.selfExclusionUntil) > new Date()) {
+    if (user.selfExclusionUntil && new Date(user.selfExclusionUntil) > new Date()) {
       return res.status(403).json({ error: 'Account is under self-exclusion restriction' });
     }
 
-    if (depositAmount > currentUser.dailyDepositLimit) {
+    if (depositAmount > user.dailyDepositLimit) {
       return res.status(400).json({
-        error: `Deposit exceeds your regulatory daily limit of ${currentUser.dailyDepositLimit} ETB`
+        error: `Deposit exceeds your regulatory daily limit of ${user.dailyDepositLimit} ETB`
       });
     }
 
-    const balanceBefore = userWallet.availableBalance;
+    const balanceBefore = wallet.availableBalance;
     const balanceAfter = balanceBefore + depositAmount;
 
-    userWallet.availableBalance = Math.round(balanceAfter * 100) / 100;
-    userWallet.totalDeposited = Math.round((userWallet.totalDeposited + depositAmount) * 100) / 100;
-    userWallet.updatedAt = new Date().toISOString();
+    wallet.availableBalance = Math.round(balanceAfter * 100) / 100;
+    wallet.totalDeposited = Math.round((wallet.totalDeposited + depositAmount) * 100) / 100;
+    wallet.updatedAt = new Date().toISOString();
+    authService.updateWallet(user.id, wallet);
 
     const txn: WalletTransaction = {
       id: `txn_${Date.now()}`,
-      walletId: 'wlt_01',
-      userId: currentUser.id,
+      walletId: `wlt_${user.id}`,
+      userId: user.id,
       type: 'deposit',
       amount: depositAmount,
       fee: 0,
       balanceBefore,
-      balanceAfter: userWallet.availableBalance,
+      balanceAfter: wallet.availableBalance,
       status: 'completed',
       referenceId: referenceId || `DEP-${providerId?.toUpperCase() || 'PROV'}-${Math.floor(100000 + Math.random() * 900000)}`,
       description: `Regulated Deposit via ${providerId || 'Authorized Gateway'}`,
@@ -303,20 +348,22 @@ async function startServer() {
 
     auditLogs.unshift({
       id: `audit-${Date.now()}`,
-      actorId: currentUser.id,
-      actorEmail: currentUser.email,
+      actorId: user.id,
+      actorEmail: user.email,
       action: 'WALLET_DEPOSIT',
       entityType: 'wallet',
       entityId: txn.id,
-      details: `Deposited ${depositAmount} ETB via ${providerId}. Balance: ${balanceBefore} -> ${userWallet.availableBalance}`,
+      details: `Deposited ${depositAmount} ETB via ${providerId}. Balance: ${balanceBefore} -> ${wallet.availableBalance}`,
       createdAt: new Date().toISOString()
     });
 
-    res.json({ success: true, wallet: userWallet, transaction: txn });
+    res.json({ success: true, wallet, transaction: txn });
   });
 
   // Withdrawal API (Configurable provider abstraction)
-  app.post('/api/wallet/withdraw', (req: Request, res: Response) => {
+  app.post('/api/wallet/withdraw', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const user = req.user!;
+    const wallet = authService.getWallet(user.id);
     const { amount, providerId, destinationAccount, accountHolderName } = req.body;
     const withdrawAmount = Number(amount);
 
@@ -324,37 +371,38 @@ async function startServer() {
       return res.status(400).json({ error: 'Invalid withdrawal amount' });
     }
 
-    if (withdrawAmount > userWallet.availableBalance) {
+    if (withdrawAmount > wallet.availableBalance) {
       return res.status(400).json({ error: 'Insufficient available funds for withdrawal' });
     }
 
-    if (currentUser.kycStatus === 'unverified') {
+    if (user.kycStatus === 'unverified') {
       return res.status(403).json({ error: 'Identity KYC verification required before withdrawals can be processed' });
     }
 
     const fee = Math.round(withdrawAmount * 0.005 * 100) / 100; // 0.5% standard fee
     const totalDeduction = withdrawAmount + fee;
 
-    if (totalDeduction > userWallet.availableBalance) {
+    if (totalDeduction > wallet.availableBalance) {
       return res.status(400).json({ error: `Insufficient funds to cover amount plus processing fee (${fee} ETB)` });
     }
 
-    const balanceBefore = userWallet.availableBalance;
+    const balanceBefore = wallet.availableBalance;
     const balanceAfter = balanceBefore - totalDeduction;
 
-    userWallet.availableBalance = Math.round(balanceAfter * 100) / 100;
-    userWallet.totalWithdrawn = Math.round((userWallet.totalWithdrawn + withdrawAmount) * 100) / 100;
-    userWallet.updatedAt = new Date().toISOString();
+    wallet.availableBalance = Math.round(balanceAfter * 100) / 100;
+    wallet.totalWithdrawn = Math.round((wallet.totalWithdrawn + withdrawAmount) * 100) / 100;
+    wallet.updatedAt = new Date().toISOString();
+    authService.updateWallet(user.id, wallet);
 
     const txn: WalletTransaction = {
       id: `txn_${Date.now()}`,
-      walletId: 'wlt_01',
-      userId: currentUser.id,
+      walletId: `wlt_${user.id}`,
+      userId: user.id,
       type: 'withdrawal',
       amount: -withdrawAmount,
       fee,
       balanceBefore,
-      balanceAfter: userWallet.availableBalance,
+      balanceAfter: wallet.availableBalance,
       status: 'completed',
       referenceId: `WTH-${providerId?.toUpperCase() || 'BANK'}-${Math.floor(100000 + Math.random() * 900000)}`,
       description: `Authorized Withdrawal to ${accountHolderName || 'User Account'} (${destinationAccount || 'Direct'})`,
@@ -367,16 +415,16 @@ async function startServer() {
 
     auditLogs.unshift({
       id: `audit-${Date.now()}`,
-      actorId: currentUser.id,
-      actorEmail: currentUser.email,
+      actorId: user.id,
+      actorEmail: user.email,
       action: 'WALLET_WITHDRAWAL',
       entityType: 'wallet',
       entityId: txn.id,
-      details: `Withdrawn ${withdrawAmount} ETB (Fee: ${fee}) to ${destinationAccount}. Balance: ${balanceBefore} -> ${userWallet.availableBalance}`,
+      details: `Withdrawn ${withdrawAmount} ETB (Fee: ${fee}) to ${destinationAccount}. Balance: ${balanceBefore} -> ${wallet.availableBalance}`,
       createdAt: new Date().toISOString()
     });
 
-    res.json({ success: true, wallet: userWallet, transaction: txn });
+    res.json({ success: true, wallet, transaction: txn });
   });
 
   // ----------------------------------------------------
@@ -389,11 +437,11 @@ async function startServer() {
 
   // Submit manual deposit request with screenshot
   // CRITICAL: Always enters PENDING state. Never credits wallet balance automatically!
-  app.post('/api/deposits/submit', async (req: Request, res: Response) => {
+  app.post('/api/deposits/submit', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
       const { paymentMethod, amount, screenshotUrl, note } = req.body;
       const deposit = await depositService.submitDepositRequest({
-        user: currentUser,
+        user: req.user!,
         paymentMethod,
         amount,
         screenshotUrl,
@@ -411,28 +459,31 @@ async function startServer() {
   });
 
   // Get current player's deposits
-  app.get('/api/deposits/my-deposits', (req: Request, res: Response) => {
+  app.get('/api/deposits/my-deposits', requireAuth, (req: AuthenticatedRequest, res: Response) => {
     const list = depositService.getDeposits({
-      userId: currentUser.id,
+      userId: req.user!.id,
       isAdmin: false
     });
     res.json(list);
   });
 
   // Get user bets
-  app.get('/api/bets/my-bets', (req: Request, res: Response) => {
-    res.json(bets);
+  app.get('/api/bets/my-bets', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const userBets = bets.filter(b => b.userId === req.user!.id);
+    res.json(userBets);
   });
 
   // CRITICAL SERVER-SIDE BET PLACEMENT ENGINE
   // Authoritative validation, atomic wallet ledger deduction, idempotency protection
-  app.post('/api/bets/place', async (req: Request, res: Response) => {
+  app.post('/api/bets/place', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
+      const user = req.user!;
+      const wallet = authService.getWallet(user.id);
       const { type, stake, selections, idempotencyKey } = req.body;
 
       const result = await bettingEngine.placeBet({
-        user: currentUser,
-        wallet: userWallet,
+        user,
+        wallet,
         type,
         stake,
         selections,
@@ -441,6 +492,10 @@ async function startServer() {
         betsStoreRef: bets,
         transactionsStoreRef: transactions
       });
+
+      if (result.success && result.wallet) {
+        authService.updateWallet(user.id, result.wallet);
+      }
 
       if (!result.success) {
         return res.status(400).json({
@@ -470,37 +525,24 @@ async function startServer() {
     res.json(bettingEngine.getStakeLimits());
   });
 
-  // Admin update stake limits endpoint
-  app.post('/api/admin/limits/stake', (req: Request, res: Response) => {
-    try {
-      const { minimumStake, maximumStake } = req.body;
-      const updated = bettingEngine.updateStakeLimits(
-        Number(minimumStake),
-        Number(maximumStake),
-        currentUser.email,
-        auditLogs
-      );
-      res.json({ success: true, limits: updated });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
-  });
-
   // Get notifications
-  app.get('/api/notifications', (req: Request, res: Response) => {
-    res.json(notifications);
+  app.get('/api/notifications', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const userNotifs = notifications.filter(n => n.userId === req.user!.id || n.userId === 'all');
+    res.json(userNotifs);
   });
 
   // Mark notification read
-  app.post('/api/notifications/:id/read', (req: Request, res: Response) => {
+  app.post('/api/notifications/:id/read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
     const notif = notifications.find(n => n.id === req.params.id);
     if (notif) notif.read = true;
     res.json({ success: true });
   });
 
   // ----------------------------------------------------
-  // ADMIN DASHBOARD & TRADING DESK API ROUTES
+  // ADMIN DASHBOARD & TRADING DESK API ROUTES (PROTECTED)
   // ----------------------------------------------------
+  // Protect all /api/admin/* endpoints with authentication & admin role authorization middleware
+  app.use('/api/admin', requireAuth, requireAdmin);
 
   // Admin Overview Statistics
   app.get('/api/admin/overview', (req: Request, res: Response) => {
@@ -549,15 +591,25 @@ async function startServer() {
   // Admin approve deposit flow (Atomic lock, duplicate protection, wallet credit, transaction ledger)
   app.post('/api/admin/deposits/:depositId/approve', async (req: Request, res: Response) => {
     try {
+      const authReq = req as AuthenticatedRequest;
+      const adminUser = authReq.user!;
       const { depositId } = req.params;
+      const targetDeposit = depositService.getDepositById(depositId);
+      const targetWallet = targetDeposit ? authService.getWallet(targetDeposit.userId) : userWallet;
+
       const result = await depositService.approveDeposit({
         depositId,
-        adminUser: currentUser,
-        wallet: userWallet,
+        adminUser,
+        wallet: targetWallet,
         transactionsRef: transactions,
         auditLogsRef: auditLogs,
         notificationsRef: notifications
       });
+
+      if (result.wallet && targetDeposit) {
+        authService.updateWallet(targetDeposit.userId, result.wallet);
+      }
+
       res.json({
         success: true,
         deposit: result.deposit,
@@ -573,11 +625,13 @@ async function startServer() {
   // Admin reject deposit flow
   app.post('/api/admin/deposits/:depositId/reject', async (req: Request, res: Response) => {
     try {
+      const authReq = req as AuthenticatedRequest;
+      const adminUser = authReq.user!;
       const { depositId } = req.params;
       const { reason } = req.body;
       const rejected = await depositService.rejectDeposit({
         depositId,
-        adminUser: currentUser,
+        adminUser,
         reason,
         auditLogsRef: auditLogs,
         notificationsRef: notifications
@@ -916,10 +970,12 @@ async function startServer() {
   // 4. Manual match settlement with mandatory authentication, reason, and audit logging
   app.post('/api/admin/settlements/manual', async (req: Request, res: Response) => {
     try {
+      const authReq = req as AuthenticatedRequest;
+      const adminUser = authReq.user!;
       const { matchId, status, homeScore, awayScore, marketOutcomes, reason } = req.body;
 
       const summary = await settlementService.manualSettleMatch({
-        adminUser: currentUser,
+        adminUser,
         matchId,
         status: status || 'FINISHED',
         homeScore: homeScore !== undefined ? Number(homeScore) : undefined,
@@ -949,6 +1005,8 @@ async function startServer() {
   // 5. Retry a failed settlement safely
   app.post('/api/admin/settlements/retry', async (req: Request, res: Response) => {
     try {
+      const authReq = req as AuthenticatedRequest;
+      const adminUser = authReq.user!;
       const { settlementId } = req.body;
       if (!settlementId) {
         return res.status(400).json({ error: 'settlementId is required' });
@@ -956,7 +1014,7 @@ async function startServer() {
 
       const result = await settlementService.retryFailedSettlement({
         settlementId,
-        adminUser: currentUser,
+        adminUser,
         auditLogsRef: auditLogs,
         betsStoreRef: bets,
         transactionsStoreRef: transactions,
@@ -979,6 +1037,8 @@ async function startServer() {
   // 6. Automated provider result synchronization
   app.post('/api/admin/settlements/sync-results', async (req: Request, res: Response) => {
     try {
+      const authReq = req as AuthenticatedRequest;
+      const adminUser = authReq.user!;
       const syncResult = await resultSyncService.syncFinishedMatches({
         betsStoreRef: bets,
         transactionsStoreRef: transactions,
@@ -991,7 +1051,7 @@ async function startServer() {
       auditLogs.unshift({
         id: `audit_sync_res_${Date.now()}`,
         actorId: 'adm-result-sync',
-        actorEmail: currentUser.email,
+        actorEmail: adminUser.email,
         action: 'RESULTS_SYNCED',
         entityType: 'sports_provider',
         entityId: 'scores-sync',
@@ -1015,6 +1075,8 @@ async function startServer() {
   // 7. Legacy /api/admin/settle compatibility route (backed by settlementService)
   app.post('/api/admin/settle', async (req: Request, res: Response) => {
     try {
+      const authReq = req as AuthenticatedRequest;
+      const adminUser = authReq.user!;
       const { matchId, marketId, winningSelectionId } = req.body;
       const match = sportsApiService.getMatch(matchId) || matches.find(m => m.id === matchId);
       if (!match) return res.status(404).json({ error: 'Match not found' });
@@ -1038,7 +1100,7 @@ async function startServer() {
           marketId,
           winningSelectionId
         }],
-        processedBy: currentUser.email,
+        processedBy: adminUser.email,
         reason: `Settled market '${market.name}' via Admin desk`,
         auditLogsRef: auditLogs,
         betsStoreRef: bets,

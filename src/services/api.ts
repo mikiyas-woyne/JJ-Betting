@@ -33,6 +33,11 @@ async function parseResponseJson<T>(res: Response, fallbackMessage: string): Pro
   }
 }
 
+function getAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem('jjbetting_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export const api = {
   async getSports(): Promise<Sport[]> {
     try {
@@ -98,8 +103,51 @@ export const api = {
     return res.json();
   },
 
+  async login(credentials: { email: string; password: string } | string, passwordParam?: string): Promise<{ user: User; token: string; wallet: Wallet }> {
+    const payload = typeof credentials === 'string' ? { email: credentials, password: passwordParam! } : credentials;
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const json = await parseResponseJson<any>(res, 'Login failed');
+    if (!res.ok) throw new Error(json.error || 'Login failed');
+    if (json.token) {
+      localStorage.setItem('jjbetting_token', json.token);
+    }
+    return json;
+  },
+
+  async signup(data: { email: string; password: string; displayName?: string; role?: string } | string, passwordParam?: string, displayNameParam?: string): Promise<{ user: User; token: string; wallet: Wallet }> {
+    const payload = typeof data === 'string' ? { email: data, password: passwordParam!, displayName: displayNameParam } : data;
+    const res = await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const json = await parseResponseJson<any>(res, 'Signup failed');
+    if (!res.ok) throw new Error(json.error || 'Signup failed');
+    if (json.token) {
+      localStorage.setItem('jjbetting_token', json.token);
+    }
+    return json;
+  },
+
+  async getMe(): Promise<{ user: User; wallet: Wallet }> {
+    const res = await fetch('/api/auth/me', {
+      headers: getAuthHeaders()
+    });
+    const json = await parseResponseJson<any>(res, 'Failed to fetch auth session');
+    if (!res.ok) throw new Error(json.error || 'Failed to fetch auth session');
+    return json;
+  },
+
+  logout(): void {
+    localStorage.removeItem('jjbetting_token');
+  },
+
   async getUserProfile(): Promise<User> {
-    const res = await fetch('/api/user/me');
+    const res = await fetch('/api/user/me', { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Failed to fetch profile');
     return res.json();
   },
@@ -107,7 +155,7 @@ export const api = {
   async updateResponsibleLimits(data: { dailyDepositLimit?: number; singleBetLimit?: number; selfExclusionDays?: number }): Promise<{ success: boolean; user: User }> {
     const res = await fetch('/api/user/limits', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
     const json = await res.json();
@@ -116,13 +164,13 @@ export const api = {
   },
 
   async getWallet(): Promise<Wallet> {
-    const res = await fetch('/api/wallet');
+    const res = await fetch('/api/wallet', { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Failed to fetch wallet');
     return res.json();
   },
 
   async getTransactions(): Promise<WalletTransaction[]> {
-    const res = await fetch('/api/wallet/transactions');
+    const res = await fetch('/api/wallet/transactions', { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Failed to fetch transactions');
     return res.json();
   },
@@ -130,7 +178,7 @@ export const api = {
   async depositFunds(amount: number, providerId: string, referenceId?: string, paymentAccount?: string): Promise<{ success: boolean; wallet: Wallet; transaction: WalletTransaction }> {
     const res = await fetch('/api/wallet/deposit', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ amount, providerId, referenceId, paymentAccount })
     });
     const json = await res.json();
@@ -141,7 +189,7 @@ export const api = {
   async withdrawFunds(amount: number, providerId: string, destinationAccount: string, accountHolderName: string): Promise<{ success: boolean; wallet: Wallet; transaction: WalletTransaction }> {
     const res = await fetch('/api/wallet/withdraw', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ amount, providerId, destinationAccount, accountHolderName })
     });
     const json = await res.json();
@@ -150,7 +198,7 @@ export const api = {
   },
 
   async getMyBets(): Promise<Bet[]> {
-    const res = await fetch('/api/bets/my-bets');
+    const res = await fetch('/api/bets/my-bets', { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Failed to fetch bets');
     return res.json();
   },
@@ -186,7 +234,7 @@ export const api = {
     const key = idempotencyKey || `idem-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const res = await fetch('/api/bets/place', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ type, stake, selections, idempotencyKey: key })
     });
     const json = await res.json();
@@ -217,13 +265,13 @@ export const api = {
   },
 
   async getNotifications(): Promise<Notification[]> {
-    const res = await fetch('/api/notifications');
+    const res = await fetch('/api/notifications', { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Failed to fetch notifications');
     return res.json();
   },
 
   async markNotificationRead(id: string): Promise<void> {
-    await fetch(`/api/notifications/${id}/read`, { method: 'POST' });
+    await fetch(`/api/notifications/${id}/read`, { method: 'POST', headers: getAuthHeaders() });
   },
 
   // Admin APIs
@@ -237,25 +285,25 @@ export const api = {
     totalTransactions: number;
     availableLiquidity: number;
   }> {
-    const res = await fetch('/api/admin/overview');
+    const res = await fetch('/api/admin/overview', { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Failed to fetch admin overview');
     return res.json();
   },
 
   async getAdminBets(): Promise<Bet[]> {
-    const res = await fetch('/api/admin/bets');
+    const res = await fetch('/api/admin/bets', { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Failed to fetch admin bets');
     return res.json();
   },
 
   async getAdminTransactions(): Promise<WalletTransaction[]> {
-    const res = await fetch('/api/admin/transactions');
+    const res = await fetch('/api/admin/transactions', { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Failed to fetch admin transactions');
     return res.json();
   },
 
   async getAdminAuditLogs(): Promise<AuditLog[]> {
-    const res = await fetch('/api/admin/audit-logs');
+    const res = await fetch('/api/admin/audit-logs', { headers: getAuthHeaders() });
     if (!res.ok) throw new Error('Failed to fetch audit logs');
     return res.json();
   },
@@ -518,7 +566,7 @@ export const api = {
     try {
       const res = await fetch('/api/deposits/submit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
       });
       const json = await parseResponseJson<any>(res, 'Deposit submission failed');
@@ -563,7 +611,7 @@ export const api = {
   async getMyDeposits(): Promise<DepositRecord[]> {
     let serverDeposits: DepositRecord[] = [];
     try {
-      const res = await fetch('/api/deposits/my-deposits');
+      const res = await fetch('/api/deposits/my-deposits', { headers: getAuthHeaders() });
       if (res.ok) {
         serverDeposits = await parseResponseJson<DepositRecord[]>(res, 'Failed to fetch deposits');
       }
@@ -594,7 +642,7 @@ export const api = {
       const query = new URLSearchParams();
       if (status && status !== 'all') query.set('status', status);
       if (search && search.trim()) query.set('search', search.trim());
-      const res = await fetch(`/api/admin/deposits?${query.toString()}`);
+      const res = await fetch(`/api/admin/deposits?${query.toString()}`, { headers: getAuthHeaders() });
       if (res.ok) {
         serverDeposits = await parseResponseJson<DepositRecord[]>(res, 'Failed to fetch deposits for review');
       }
@@ -633,7 +681,7 @@ export const api = {
     totalApprovedAmount: number;
   }> {
     try {
-      const res = await fetch('/api/admin/deposits/summary');
+      const res = await fetch('/api/admin/deposits/summary', { headers: getAuthHeaders() });
       if (res.ok) {
         return await parseResponseJson(res, 'Failed to fetch deposit summary metrics');
       }
@@ -658,7 +706,7 @@ export const api = {
   }> {
     const res = await fetch(`/api/admin/deposits/${depositId}/approve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error || 'Deposit approval failed');
@@ -672,7 +720,7 @@ export const api = {
   }> {
     const res = await fetch(`/api/admin/deposits/${depositId}/reject`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ reason })
     });
     const json = await res.json();

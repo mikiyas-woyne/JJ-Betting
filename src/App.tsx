@@ -23,6 +23,7 @@ import { BetHistoryModal } from './components/BetHistoryModal';
 import { ResponsibleGamblingModal } from './components/ResponsibleGamblingModal';
 import { NotificationsModal } from './components/NotificationsModal';
 import { AdminDashboard } from './components/AdminDashboard';
+import { AuthModal } from './components/AuthModal';
 
 export default function App() {
   const [activeView, setActiveView] = useState<'sportsbook' | 'admin'>('sportsbook');
@@ -37,19 +38,11 @@ export default function App() {
   const [isBetsOpen, setIsBetsOpen] = useState<boolean>(false);
   const [isLimitsOpen, setIsLimitsOpen] = useState<boolean>(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
+  const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [betHistoryFilter, setBetHistoryFilter] = useState<'all' | 'pending' | 'won' | 'lost' | 'void' | 'cancelled'>('pending');
 
-  // User State
-  const [user, setUser] = useState<User>({
-    id: 'usr_licensed_01',
-    email: 'mikiyaswoyne@gmail.com',
-    displayName: 'Mikiyas W.',
-    role: 'customer',
-    kycStatus: 'tier1_verified',
-    dailyDepositLimit: 50000,
-    singleBetLimit: 10000,
-    createdAt: new Date().toISOString()
-  });
+  // User Auth State
+  const [user, setUser] = useState<User | null>(null);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [userBets, setUserBets] = useState<Bet[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -69,13 +62,13 @@ export default function App() {
       const results = await Promise.allSettled([
         api.getSports(),
         api.getMatches(),
-        api.getUserProfile(),
-        api.getWallet(),
+        api.getMe(),
         api.getMyBets(),
         api.getNotifications(),
         api.getTransactions(),
         api.getSportsProviderStatus()
       ]);
+
       if (results[0].status === 'fulfilled' && results[0].value?.length > 0) {
         setSports(results[0].value);
       } else {
@@ -90,17 +83,40 @@ export default function App() {
         setMatches(sortMatchesSoonerFirst(INITIAL_MATCHES));
         setLastUpdatedTime(Date.now());
       }
-      if (results[2].status === 'fulfilled') setUser(results[2].value);
-      if (results[3].status === 'fulfilled') setWallet(results[3].value);
-      if (results[4].status === 'fulfilled') setUserBets(results[4].value);
-      if (results[5].status === 'fulfilled') setNotifications(results[5].value);
-      if (results[6].status === 'fulfilled') setTransactions(results[6].value);
-      if (results[7].status === 'fulfilled') setProviderStatus(results[7].value);
+
+      if (results[2].status === 'fulfilled' && results[2].value?.user) {
+        setUser(results[2].value.user);
+        setWallet(results[2].value.wallet);
+      } else {
+        // Prompt login if no valid auth session
+        setIsAuthOpen(true);
+      }
+
+      if (results[3].status === 'fulfilled') setUserBets(results[3].value);
+      if (results[4].status === 'fulfilled') setNotifications(results[4].value);
+      if (results[5].status === 'fulfilled') setTransactions(results[5].value);
+      if (results[6].status === 'fulfilled') setProviderStatus(results[6].value);
     } catch (err) {
       console.warn('[Sportsbook] Initial data fetch notice:', err);
     } finally {
       setIsLoadingMatches(false);
     }
+  };
+
+  const handleLoginSuccess = (authUser: User, authWallet: Wallet) => {
+    setUser(authUser);
+    setWallet(authWallet);
+    setIsAuthOpen(false);
+    fetchAllData();
+  };
+
+  const handleLogout = () => {
+    api.logout();
+    setUser(null);
+    setWallet(null);
+    setUserBets([]);
+    setActiveView('sportsbook');
+    setIsAuthOpen(true);
   };
 
   const fetchMatchesDataSilently = async () => {
@@ -238,7 +254,9 @@ export default function App() {
     ? filteredMatches.filter(m => !spotlightMatches.some(s => s.id === m.id))
     : filteredMatches;
 
-  if (activeView === 'admin') {
+  const isAdmin = user && (user.role === 'admin' || user.email.toLowerCase() === 'mikiyaswoyne@gmail.com');
+
+  if (activeView === 'admin' && isAdmin) {
     return (
       <AdminDashboard
         onBackToSportsbook={() => setActiveView('sportsbook')}
@@ -256,11 +274,16 @@ export default function App() {
         wallet={wallet}
         notifications={notifications}
         activeView={activeView}
-        onViewChange={setActiveView}
+        onViewChange={(v) => {
+          if (v === 'admin' && !isAdmin) return;
+          setActiveView(v);
+        }}
         onOpenWallet={() => setIsWalletOpen(true)}
         onOpenBets={() => setIsBetsOpen(true)}
         onOpenLimits={() => setIsLimitsOpen(true)}
         onOpenNotifications={() => setIsNotificationsOpen(true)}
+        onOpenAuth={() => setIsAuthOpen(true)}
+        onLogout={handleLogout}
       />
 
       {/* Sports Categories & Live Filter Bar */}
@@ -276,7 +299,7 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-8 pb-32">
         {/* Responsible Gaming Alert if self-excluded */}
-        {user.selfExclusionUntil && new Date(user.selfExclusionUntil) > new Date() && (
+        {user?.selfExclusionUntil && new Date(user.selfExclusionUntil) > new Date() && (
           <div className="bg-amber-500/15 border border-amber-500/40 p-4 rounded-2xl flex items-center justify-between text-xs text-amber-300">
             <div className="flex items-center gap-2">
               <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
@@ -494,6 +517,14 @@ export default function App() {
           notifications={notifications}
           onClose={() => setIsNotificationsOpen(false)}
           onMarkRead={handleMarkNotificationRead}
+        />
+      )}
+
+      {/* Authentication & Authorization Modal */}
+      {isAuthOpen && (
+        <AuthModal
+          onClose={() => setIsAuthOpen(false)}
+          onSuccess={handleLoginSuccess}
         />
       )}
     </div>

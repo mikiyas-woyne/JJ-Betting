@@ -197,6 +197,10 @@ export class DepositService {
   /**
    * Get deposits with optional filters and role validation
    */
+  public getDepositById(depositId: string): DepositRecord | undefined {
+    return this.deposits.find(d => d.depositId === depositId);
+  }
+
   public getDeposits(params: {
     userId?: string;
     isAdmin: boolean;
