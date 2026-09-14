@@ -52,7 +52,7 @@ export const ResponsibleGamblingModal: React.FC<ResponsibleGamblingModalProps> =
             </div>
             <div>
               <h3 className="font-black text-white text-base">Responsible Play Controls</h3>
-              <p className="text-xs text-slate-400">National Regulatory Player Protection</p>
+              <p className="text-xs text-slate-400">Private Beta Player Protection</p>
             </div>
           </div>
           <button

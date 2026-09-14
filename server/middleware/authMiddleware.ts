@@ -42,8 +42,8 @@ export const requireAdmin = (req: AuthenticatedRequest, res: Response, next: Nex
     return res.status(401).json({ error: 'Authentication required.' });
   }
 
-  // Admin role check or designated system administrator email
-  const isAdminUser = req.user.role === 'admin' || req.user.email.toLowerCase() === 'mikiyaswoyne@gmail.com';
+  // Admin role check: only users with role === 'admin' can access admin endpoints
+  const isAdminUser = req.user.role === 'admin';
   
   if (!isAdminUser) {
     return res.status(403).json({ error: 'Access denied: Administrative privileges required.' });

@@ -40,7 +40,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout
 }) => {
   const unreadCount = notifications.filter(n => !n.read).length;
-  const isAdmin = user && (user.role === 'admin' || user.email.toLowerCase() === 'mikiyaswoyne@gmail.com');
+  const isAdmin = Boolean(user && user.role === 'admin');
 
   return (
     <header className="sticky top-0 z-40 bg-slate-900 border-b border-slate-800 text-white shadow-md">
@@ -48,7 +48,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="bg-slate-950 px-4 py-1 flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-850">
         <div className="flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span className="font-semibold text-slate-300">National Lottery Administration Licensed</span>
+          <span className="font-semibold text-slate-300">Private Beta for Invited Users</span>
           <span className="hidden sm:inline text-slate-500">• License No. NLA/SP/2024/09</span>
         </div>
         <div className="flex items-center gap-4">

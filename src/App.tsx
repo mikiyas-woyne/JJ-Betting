@@ -86,27 +86,32 @@ export default function App() {
       }
 
       if (results[2].status === 'fulfilled' && results[2].value?.user) {
+        console.log('[App Auth Callback DEBUG] Active JWT session restored successfully:', results[2].value.user.email);
         setUser(results[2].value.user);
         setWallet(results[2].value.wallet);
       } else {
-        // Check if user just returned from Google OAuth redirect flow
+        console.log('[App Auth Callback DEBUG] No active JWT session found. Inspecting Firebase Google OAuth redirect result...');
         const redirectUser = await checkGoogleRedirectResult();
+        console.log('[App Auth Callback DEBUG] checkGoogleRedirectResult output:', redirectUser);
+
         if (redirectUser && redirectUser.email) {
+          console.log('[App Auth Callback DEBUG] Valid Google redirect user detected:', redirectUser.email, 'Exchanging for backend session...');
           try {
             const authRes = await api.googleLogin({
               email: redirectUser.email,
               displayName: redirectUser.displayName,
               googleId: redirectUser.uid
             });
+            console.log('[App Auth Callback DEBUG] Backend session exchange successful:', authRes.user.email);
             setUser(authRes.user);
             setWallet(authRes.wallet);
             setIsAuthOpen(false);
-          } catch (gErr) {
-            console.error('[Firebase Auth] Failed to exchange redirect token:', gErr);
+          } catch (gErr: any) {
+            console.error('[App Auth Callback DEBUG] Failed to exchange Google redirect token:', gErr?.message || gErr);
             setIsAuthOpen(true);
           }
         } else {
-          // Prompt login if no valid auth session
+          console.log('[App Auth Callback DEBUG] No redirect user detected. Opening Auth modal for user login.');
           setIsAuthOpen(true);
         }
       }
@@ -279,7 +284,7 @@ export default function App() {
     ? filteredMatches.filter(m => !spotlightMatches.some(s => s.id === m.id))
     : filteredMatches;
 
-  const isAdmin = user && (user.role === 'admin' || user.email.toLowerCase() === 'mikiyaswoyne@gmail.com');
+  const isAdmin = Boolean(user && user.role === 'admin');
 
   if (activeView === 'admin' && isAdmin) {
     return (
@@ -445,12 +450,12 @@ export default function App() {
           )}
         </section>
 
-        {/* Regulatory Transparency & License Footer Banner */}
+        {/* Private Beta Information & Honest Footer Banner */}
         <footer className="pt-8 border-t border-slate-800/80 text-xs text-slate-500 space-y-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-slate-300 font-bold">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>National Regulatory Compliance & Anti-Money Laundering Certified</span>
+              <span>Private Beta for Invited Users</span>
             </div>
             <div className="flex items-center gap-4 text-slate-400">
               <button
@@ -466,17 +471,21 @@ export default function App() {
               >
                 Payment Providers
               </button>
-              <span>•</span>
-              <button
-                onClick={() => setActiveView('admin')}
-                className="text-amber-400 hover:text-amber-300 transition-colors cursor-pointer font-semibold"
-              >
-                Admin Trading Desk
-              </button>
+              {isAdmin && (
+                <>
+                  <span>•</span>
+                  <button
+                    onClick={() => setActiveView('admin')}
+                    className="text-amber-400 hover:text-amber-300 transition-colors cursor-pointer font-semibold"
+                  >
+                    Admin Trading Desk
+                  </button>
+                </>
+              )}
             </div>
           </div>
           <p className="text-[11px] leading-relaxed text-slate-500">
-            Apex Sportsbook operates under strict national gaming regulations. Betting calculations, odd multipliers, and balance balances are computed and validated exclusively on secure server architecture. Zero-trust principles govern all client bet submissions. 18+ only.
+            Apex Sportsbook is a private beta application built for invited users. Betting calculations, odds, and ledger transactions are validated on server architecture. For recreational demonstration use among friends. 18+ only.
           </p>
         </footer>
       </main>

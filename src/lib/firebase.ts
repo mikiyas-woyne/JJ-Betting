@@ -27,10 +27,21 @@ googleProvider.setCustomParameters({
  * Handle Google Sign-In with fallback for popup blocking or iframe sandbox constraints
  */
 export async function signInWithGoogleAuth(): Promise<{ email: string; displayName?: string; uid: string; idToken?: string }> {
+  console.log('[Firebase Auth DEBUG] Initiating signInWithGoogleAuth...');
+  console.log('[Firebase Auth DEBUG] Location at launch:', {
+    href: window.location.href,
+    origin: window.location.origin,
+    pathname: window.location.pathname,
+    search: window.location.search,
+    hash: window.location.hash
+  });
+
   try {
     const result = await signInWithPopup(auth, googleProvider);
+    console.log('[Firebase Auth DEBUG] signInWithPopup returned result:', result);
     const user = result.user;
     const idToken = await user.getIdToken();
+    console.log('[Firebase Auth DEBUG] Retrieved ID token for popup user:', user.email);
     return {
       email: user.email || '',
       displayName: user.displayName || undefined,
@@ -38,7 +49,7 @@ export async function signInWithGoogleAuth(): Promise<{ email: string; displayNa
       idToken
     };
   } catch (error: any) {
-    console.warn('[Firebase Auth] Popup sign-in notice/fallback:', error.code, error.message);
+    console.warn('[Firebase Auth DEBUG] Popup sign-in error/notice:', error?.code, error?.message);
     
     // If popup is blocked or closed by popup restrictions in iframe sandbox, attempt redirect
     if (
@@ -47,12 +58,13 @@ export async function signInWithGoogleAuth(): Promise<{ email: string; displayNa
       error.code === 'auth/cancelled-popup-request' ||
       error.code === 'auth/unauthorized-domain'
     ) {
+      console.log('[Firebase Auth DEBUG] Fallback to signInWithRedirect triggered due to code:', error.code);
       try {
         await signInWithRedirect(auth, googleProvider);
-        // Will trigger page redirect to Google OAuth
+        console.log('[Firebase Auth DEBUG] signInWithRedirect dispatched. Page will redirect...');
         return new Promise(() => {}); // Wait for redirect page unload
       } catch (redirectErr: any) {
-        console.warn('[Firebase Auth] Redirect failed:', redirectErr);
+        console.error('[Firebase Auth DEBUG] signInWithRedirect failed:', redirectErr);
         throw new Error(redirectErr.message || 'Google Auth is unavailable in this preview container environment.');
       }
     }
@@ -65,20 +77,43 @@ export async function signInWithGoogleAuth(): Promise<{ email: string; displayNa
  * Check for pending Google OAuth redirect results (call on initial app boot)
  */
 export async function checkGoogleRedirectResult(): Promise<{ email: string; displayName?: string; uid: string; idToken?: string } | null> {
+  console.log('[Firebase Auth DEBUG] Executing checkGoogleRedirectResult...');
+  console.log('[Firebase Auth DEBUG] Window Location Inspection:', {
+    href: window.location.href,
+    origin: window.location.origin,
+    pathname: window.location.pathname,
+    search: window.location.search,
+    hash: window.location.hash
+  });
+
   try {
     const result = await getRedirectResult(auth);
+    console.log('[Firebase Auth DEBUG] getRedirectResult raw response:', result);
+
     if (result && result.user) {
       const user = result.user;
+      console.log('[Firebase Auth DEBUG] Found user in redirect result:', {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName,
+        providerId: user.providerId
+      });
+
       const idToken = await user.getIdToken();
+      console.log('[Firebase Auth DEBUG] Retrieved ID token of length:', idToken ? idToken.length : 0);
+
       return {
         email: user.email || '',
         displayName: user.displayName || undefined,
         uid: user.uid,
         idToken
       };
+    } else {
+      console.log('[Firebase Auth DEBUG] No redirect user result found on this window load.');
     }
-  } catch (err) {
-    console.error('[Firebase Auth] Error reading redirect result:', err);
+  } catch (err: any) {
+    console.error('[Firebase Auth DEBUG] Error reading getRedirectResult:', err);
+    console.error('[Firebase Auth DEBUG] Error Code:', err?.code, 'Message:', err?.message);
   }
   return null;
 }

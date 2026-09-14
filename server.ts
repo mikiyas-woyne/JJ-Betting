@@ -26,6 +26,7 @@ import matchesRouter from './server/routes/matches.ts';
 import oddsRouter from './server/routes/odds.ts';
 import { authService } from './server/services/authService.ts';
 import { requireAuth, requireAdmin, AuthenticatedRequest } from './server/middleware/authMiddleware.ts';
+import { depositSchema, withdrawSchema, placeBetSchema } from './server/validation/schemas.ts';
 
 // Seed initial baseline catalog into the centralized sports API & odds engine
 // Resilient fallback baseline: ensures the platform is immediately operational
@@ -320,14 +321,18 @@ async function startServer() {
 
   // Deposit API (Configurable provider abstraction)
   app.post('/api/wallet/deposit', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const validation = depositSchema.safeParse({
+      ...req.body,
+      amount: req.body.amount !== undefined ? Number(req.body.amount) : undefined
+    });
+
+    if (!validation.success) {
+      return res.status(400).json({ error: validation.error.issues[0].message });
+    }
+
+    const { amount: depositAmount, providerId, referenceId, paymentAccount } = validation.data;
     const user = req.user!;
     const wallet = authService.getWallet(user.id);
-    const { amount, providerId, referenceId, paymentAccount } = req.body;
-    const depositAmount = Number(amount);
-
-    if (isNaN(depositAmount) || depositAmount <= 0) {
-      return res.status(400).json({ error: 'Invalid deposit amount' });
-    }
 
     if (user.selfExclusionUntil && new Date(user.selfExclusionUntil) > new Date()) {
       return res.status(403).json({ error: 'Account is under self-exclusion restriction' });
@@ -335,7 +340,7 @@ async function startServer() {
 
     if (depositAmount > user.dailyDepositLimit) {
       return res.status(400).json({
-        error: `Deposit exceeds your regulatory daily limit of ${user.dailyDepositLimit} ETB`
+        error: `Deposit exceeds your daily limit of ${user.dailyDepositLimit} ETB`
       });
     }
 
@@ -358,7 +363,7 @@ async function startServer() {
       balanceAfter: wallet.availableBalance,
       status: 'completed',
       referenceId: referenceId || `DEP-${providerId?.toUpperCase() || 'PROV'}-${Math.floor(100000 + Math.random() * 900000)}`,
-      description: `Regulated Deposit via ${providerId || 'Authorized Gateway'}`,
+      description: `Deposit via ${providerId || 'Authorized Gateway'}`,
       paymentMethod: providerId,
       metadata: { paymentAccount },
       createdAt: new Date().toISOString()
@@ -382,14 +387,18 @@ async function startServer() {
 
   // Withdrawal API (Configurable provider abstraction)
   app.post('/api/wallet/withdraw', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+    const validation = withdrawSchema.safeParse({
+      ...req.body,
+      amount: req.body.amount !== undefined ? Number(req.body.amount) : undefined
+    });
+
+    if (!validation.success) {
+      return res.status(400).json({ error: validation.error.issues[0].message });
+    }
+
+    const { amount: withdrawAmount, providerId, destinationAccount, accountHolderName } = validation.data;
     const user = req.user!;
     const wallet = authService.getWallet(user.id);
-    const { amount, providerId, destinationAccount, accountHolderName } = req.body;
-    const withdrawAmount = Number(amount);
-
-    if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
-      return res.status(400).json({ error: 'Invalid withdrawal amount' });
-    }
 
     if (withdrawAmount > wallet.availableBalance) {
       return res.status(400).json({ error: 'Insufficient available funds for withdrawal' });
@@ -497,9 +506,18 @@ async function startServer() {
   // Authoritative validation, atomic wallet ledger deduction, idempotency protection
   app.post('/api/bets/place', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
     try {
+      const validation = placeBetSchema.safeParse({
+        ...req.body,
+        stake: req.body.stake !== undefined ? Number(req.body.stake) : undefined
+      });
+
+      if (!validation.success) {
+        return res.status(400).json({ error: validation.error.issues[0].message });
+      }
+
+      const { type, stake, selections, idempotencyKey } = validation.data;
       const user = req.user!;
       const wallet = authService.getWallet(user.id);
-      const { type, stake, selections, idempotencyKey } = req.body;
 
       const result = await bettingEngine.placeBet({
         user,

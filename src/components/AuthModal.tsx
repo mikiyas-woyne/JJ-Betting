@@ -37,7 +37,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     e.preventDefault();
     setError(null);
 
-    if (!email.trim() || !password.trim()) {
+    const targetEmail = email.trim();
+    const targetPassword = password.trim();
+
+    if (!targetEmail || !targetPassword) {
       setError('Please enter both email address and password.');
       return;
     }
@@ -45,13 +48,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       setIsLoading(true);
       if (mode === 'login') {
-        const res = await api.login(email, password);
-        triggerAuthSuccess(res.user, res.wallet);
+        try {
+          const res = await api.login(targetEmail, targetPassword);
+          triggerAuthSuccess(res.user, res.wallet);
+          onClose();
+          return;
+        } catch (loginErr: any) {
+          // If account doesn't exist yet, automatically create it and sign in
+          if (loginErr.message?.includes('Invalid email') || loginErr.message?.includes('not found')) {
+            console.log('[Auth] Account not found, auto-creating account...');
+            const signupRes = await api.signup(targetEmail, targetPassword, displayName || targetEmail.split('@')[0]);
+            triggerAuthSuccess(signupRes.user, signupRes.wallet);
+            onClose();
+            return;
+          }
+          throw loginErr;
+        }
       } else {
-        const res = await api.signup(email, password, displayName);
+        const res = await api.signup(targetEmail, targetPassword, displayName || targetEmail.split('@')[0]);
         triggerAuthSuccess(res.user, res.wallet);
+        onClose();
       }
-      onClose();
     } catch (err: any) {
       setError(err.message || 'Authentication failed. Please check your credentials.');
     } finally {
@@ -63,6 +80,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError(null);
     try {
       setIsLoading(true);
+      console.log('[AuthModal DEBUG] Google Sign-In button clicked');
       let googlePayload = {
         email: email.trim() || 'mikiyaswoyne@gmail.com',
         displayName: displayName.trim() || 'Mikiyas Woyne (Google)',
@@ -77,30 +95,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           googlePayload.googleId = firebaseUser.uid;
         }
       } catch (fbErr: any) {
-        console.warn('[Firebase Auth] Firebase Google login prompt notice, proceeding with session initialization:', fbErr);
-        // If Firebase Auth popup was closed or unauthorized domain in sandboxed container, fallback to given email
+        console.warn('[Firebase Auth DEBUG] Firebase Google login notice, proceeding with session initialization:', fbErr);
       }
 
+      console.log('[AuthModal DEBUG] Dispatched googleLogin payload to backend:', googlePayload);
       const res = await api.googleLogin(googlePayload);
+      console.log('[AuthModal DEBUG] Backend googleLogin returned success:', res.user);
       triggerAuthSuccess(res.user, res.wallet);
       onClose();
     } catch (err: any) {
+      console.error('[AuthModal DEBUG] Google sign-in failed:', err);
       setError(err.message || 'Google sign-in failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleQuickFill = (type: 'customer' | 'admin') => {
+  const handleQuickFill = async (type: 'customer' | 'admin') => {
     setError(null);
-    if (type === 'customer') {
-      setEmail('mikiyaswoyne@gmail.com');
-      setPassword('password123');
-      setMode('login');
-    } else {
-      setEmail('admin@jjbetting.com');
-      setPassword('admin123');
-      setMode('login');
+    const targetEmail = type === 'customer' ? 'mikiyaswoyne@gmail.com' : 'admin@jjbetting.com';
+    const targetPassword = type === 'customer' ? 'password123' : 'admin123';
+    
+    setEmail(targetEmail);
+    setPassword(targetPassword);
+    setMode('login');
+
+    try {
+      setIsLoading(true);
+      console.log('[AuthModal DEBUG] Quick fill auto-login triggered for:', targetEmail);
+      const res = await api.login(targetEmail, targetPassword);
+      console.log('[AuthModal DEBUG] Quick fill login successful:', res.user);
+      triggerAuthSuccess(res.user, res.wallet);
+      onClose();
+    } catch (err: any) {
+      console.error('[AuthModal DEBUG] Quick fill login failed:', err);
+      setError(err.message || 'Quick fill login failed. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
