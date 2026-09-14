@@ -105,20 +105,57 @@ export const ManualDepositFlow: React.FC<ManualDepositFlowProps> = ({
       return;
     }
 
-    // Validate size: max 5 MB (5 * 1024 * 1024 bytes)
-    const maxSize = 5 * 1024 * 1024;
+    // Validate size: max 10 MB (10 * 1024 * 1024 bytes)
+    const maxSize = 10 * 1024 * 1024;
     if (file.size > maxSize) {
-      setFileError(`File size ${(file.size / (1024 * 1024)).toFixed(2)} MB exceeds maximum allowed limit of 5 MB.`);
+      setFileError(`File size ${(file.size / (1024 * 1024)).toFixed(2)} MB exceeds maximum allowed limit of 10 MB.`);
       return;
     }
 
     setScreenshotFileName(file.name);
 
     const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setScreenshotPreview(reader.result);
-      }
+    reader.onload = (event) => {
+      const rawResult = event.target?.result;
+      if (typeof rawResult !== 'string') return;
+
+      // Compress and scale image using HTML5 Canvas to prevent payload limits
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxDim = 1200;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, width, height);
+            const compressedJpeg = canvas.toDataURL('image/jpeg', 0.82);
+            setScreenshotPreview(compressedJpeg);
+            return;
+          }
+        } catch {
+          // fallback to raw result if canvas fails
+        }
+        setScreenshotPreview(rawResult);
+      };
+      img.onerror = () => {
+        setScreenshotPreview(rawResult);
+      };
+      img.src = rawResult;
     };
     reader.onerror = () => {
       setFileError('Failed to read image file. Please try another image.');
