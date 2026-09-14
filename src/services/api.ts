@@ -14,12 +14,32 @@ import {
   ManualPaymentDestination,
   OddsApiDiagnosticResult
 } from '../types';
+import { espnClient } from './espnClient';
+import { sortMatchesSoonerFirst } from '../utils/sortMatches';
+import { INITIAL_SPORTS, INITIAL_MATCHES } from '../data/sportsData';
 
 export const api = {
   async getSports(): Promise<Sport[]> {
-    const res = await fetch('/api/sports');
-    if (!res.ok) throw new Error('Failed to fetch sports');
-    return res.json();
+    try {
+      const res = await fetch('/api/sports');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) return data;
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const matches = await espnClient.fetchRealMatches();
+      if (matches && matches.length > 0) {
+        return espnClient.getSportsWithCounts(matches);
+      }
+    } catch {
+      // ignore
+    }
+
+    return INITIAL_SPORTS;
   },
 
   async getMatches(params?: { sportId?: string; status?: string; popular?: boolean; featured?: boolean }): Promise<Match[]> {
@@ -31,16 +51,30 @@ export const api = {
     
     try {
       const res = await fetch(`/api/matches?${query.toString()}`);
-      if (!res.ok) {
-        console.warn(`[API] Matches fetch returned HTTP ${res.status}`);
-        return [];
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          return sortMatchesSoonerFirst(data);
+        }
       }
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
     } catch (err) {
-      console.warn('[API] Matches fetch connection interrupted:', err);
-      return [];
+      console.warn('[API] Matches backend fetch failed, using client ESPN live feed:', err);
     }
+
+    try {
+      const realMatches = await espnClient.fetchRealMatches(params?.sportId);
+      if (realMatches && realMatches.length > 0) {
+        let filtered = realMatches;
+        if (params?.status) filtered = filtered.filter(m => m.status === params.status);
+        if (params?.popular) filtered = filtered.filter(m => m.popular);
+        if (params?.featured) filtered = filtered.filter(m => m.featured);
+        return sortMatchesSoonerFirst(filtered);
+      }
+    } catch (e) {
+      console.warn('[API] Direct client ESPN fetch failed:', e);
+    }
+
+    return sortMatchesSoonerFirst(INITIAL_MATCHES);
   },
 
   async getMatchById(id: string): Promise<Match> {

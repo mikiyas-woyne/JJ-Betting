@@ -12,6 +12,7 @@ import {
 import { Match, Sport, BetSlipItem, Wallet, Bet, Notification, User } from './types';
 import { api } from './services/api';
 import { INITIAL_MATCHES, INITIAL_SPORTS } from './data/sportsData';
+import { sortMatchesSoonerFirst } from './utils/sortMatches';
 import { Navbar } from './components/Navbar';
 import { SportsBar } from './components/SportsBar';
 import { MatchCard } from './components/MatchCard';
@@ -82,11 +83,11 @@ export default function App() {
       }
 
       if (results[1].status === 'fulfilled' && results[1].value?.length > 0) {
-        const m = results[1].value;
+        const m = sortMatchesSoonerFirst(results[1].value);
         setMatches(m);
         setLastUpdatedTime(Date.now());
       } else {
-        setMatches(INITIAL_MATCHES);
+        setMatches(sortMatchesSoonerFirst(INITIAL_MATCHES));
         setLastUpdatedTime(Date.now());
       }
       if (results[2].status === 'fulfilled') setUser(results[2].value);
@@ -221,13 +222,14 @@ export default function App() {
   };
 
   // Filtering matches
-  const liveMatches = matches.filter(m => m.status === 'live');
-  const filteredMatches = matches.filter(match => {
+  const sortedMatches = sortMatchesSoonerFirst(matches);
+  const liveMatches = sortedMatches.filter(m => m.status === 'live');
+  const filteredMatches = sortMatchesSoonerFirst(sortedMatches.filter(match => {
     if (selectedSportId !== 'all' && match.sportId !== selectedSportId) return false;
     if (timingFilter === 'live' && match.status !== 'live') return false;
     if (timingFilter === 'upcoming' && match.status !== 'scheduled') return false;
     return true;
-  });
+  }));
 
   const spotlightMatches = timingFilter === 'all'
     ? filteredMatches.filter(m => m.featured || m.status === 'live').slice(0, 3)
