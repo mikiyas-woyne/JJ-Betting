@@ -107,6 +107,11 @@ export default function App() {
     setUser(authUser);
     setWallet(authWallet);
     setIsAuthOpen(false);
+    if (authUser.role === 'admin' || authUser.email.toLowerCase() === 'admin@jjbetting.com') {
+      setActiveView('admin');
+    } else {
+      setActiveView('sportsbook');
+    }
     fetchAllData();
   };
 

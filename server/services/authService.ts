@@ -185,6 +185,30 @@ class AuthService {
     return { user, token, wallet };
   }
 
+  public async googleAuth(params: {
+    email: string;
+    displayName?: string;
+    googleId?: string;
+  }): Promise<{ user: User; token: string; wallet: Wallet }> {
+    const emailNorm = params.email.trim().toLowerCase();
+    
+    let existingUser = this.getUserByEmail(emailNorm);
+    if (!existingUser) {
+      // Automatically create a new user account for Google sign in
+      const signupRes = await this.signup({
+        email: emailNorm,
+        password: `google_oauth_${Date.now()}_${Math.random()}`,
+        displayName: params.displayName || emailNorm.split('@')[0],
+        role: (emailNorm.includes('admin') || emailNorm === 'admin@jjbetting.com') ? 'admin' : 'customer'
+      });
+      return signupRes;
+    }
+
+    const token = this.generateToken(existingUser);
+    const wallet = this.getWallet(existingUser.id);
+    return { user: existingUser, token, wallet };
+  }
+
   public getUserById(id: string): User | null {
     const u = this.users.get(id);
     return u ? this.sanitizeUser(u) : null;

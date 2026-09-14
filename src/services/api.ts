@@ -133,6 +133,20 @@ export const api = {
     return json;
   },
 
+  async googleLogin(data: { email: string; displayName?: string; googleId?: string }): Promise<{ user: User; token: string; wallet: Wallet }> {
+    const res = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const json = await parseResponseJson<any>(res, 'Google sign-in failed');
+    if (!res.ok) throw new Error(json.error || 'Google sign-in failed');
+    if (json.token) {
+      localStorage.setItem('jjbetting_token', json.token);
+    }
+    return json;
+  },
+
   async getMe(): Promise<{ user: User; wallet: Wallet }> {
     const res = await fetch('/api/auth/me', {
       headers: getAuthHeaders()

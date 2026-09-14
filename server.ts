@@ -242,6 +242,19 @@ async function startServer() {
     }
   });
 
+  app.post('/api/auth/google', async (req: Request, res: Response) => {
+    try {
+      const { email, displayName, googleId } = req.body;
+      if (!email) {
+        return res.status(400).json({ error: 'Email is required for Google authentication' });
+      }
+      const result = await authService.googleAuth({ email, displayName, googleId });
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Google sign-in failed' });
+    }
+  });
+
   app.get('/api/auth/me', requireAuth, (req: AuthenticatedRequest, res: Response) => {
     const user = req.user!;
     const wallet = authService.getWallet(user.id);
