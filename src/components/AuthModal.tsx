@@ -81,22 +81,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       setIsLoading(true);
       console.log('[AuthModal DEBUG] Google Sign-In button clicked');
-      let googlePayload = {
-        email: email.trim() || 'mikiyaswoyne@gmail.com',
-        displayName: displayName.trim() || 'Mikiyas Woyne (Google)',
-        googleId: ''
-      };
-
-      try {
-        const firebaseUser = await signInWithGoogleAuth();
-        if (firebaseUser && firebaseUser.email) {
-          googlePayload.email = firebaseUser.email;
-          googlePayload.displayName = firebaseUser.displayName || firebaseUser.email.split('@')[0];
-          googlePayload.googleId = firebaseUser.uid;
-        }
-      } catch (fbErr: any) {
-        console.warn('[Firebase Auth DEBUG] Firebase Google login notice, proceeding with session initialization:', fbErr);
+      const firebaseUser = await signInWithGoogleAuth();
+      
+      if (!firebaseUser || !firebaseUser.email) {
+        // Redirect flow dispatched or pending
+        return;
       }
+
+      const googlePayload = {
+        email: firebaseUser.email,
+        displayName: firebaseUser.displayName || firebaseUser.email.split('@')[0],
+        googleId: firebaseUser.uid
+      };
 
       console.log('[AuthModal DEBUG] Dispatched googleLogin payload to backend:', googlePayload);
       const res = await api.googleLogin(googlePayload);
@@ -105,7 +101,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       onClose();
     } catch (err: any) {
       console.error('[AuthModal DEBUG] Google sign-in failed:', err);
-      setError(err.message || 'Google sign-in failed. Please try again.');
+      setError(err?.message || 'Google sign-in failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
