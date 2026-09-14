@@ -24,6 +24,7 @@ import { ResponsibleGamblingModal } from './components/ResponsibleGamblingModal'
 import { NotificationsModal } from './components/NotificationsModal';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AuthModal } from './components/AuthModal';
+import { checkGoogleRedirectResult, logoutFirebase } from './lib/firebase';
 
 export default function App() {
   const [activeView, setActiveView] = useState<'sportsbook' | 'admin'>('sportsbook');
@@ -88,8 +89,26 @@ export default function App() {
         setUser(results[2].value.user);
         setWallet(results[2].value.wallet);
       } else {
-        // Prompt login if no valid auth session
-        setIsAuthOpen(true);
+        // Check if user just returned from Google OAuth redirect flow
+        const redirectUser = await checkGoogleRedirectResult();
+        if (redirectUser && redirectUser.email) {
+          try {
+            const authRes = await api.googleLogin({
+              email: redirectUser.email,
+              displayName: redirectUser.displayName,
+              googleId: redirectUser.uid
+            });
+            setUser(authRes.user);
+            setWallet(authRes.wallet);
+            setIsAuthOpen(false);
+          } catch (gErr) {
+            console.error('[Firebase Auth] Failed to exchange redirect token:', gErr);
+            setIsAuthOpen(true);
+          }
+        } else {
+          // Prompt login if no valid auth session
+          setIsAuthOpen(true);
+        }
       }
 
       if (results[3].status === 'fulfilled') setUserBets(results[3].value);
@@ -117,6 +136,7 @@ export default function App() {
 
   const handleLogout = () => {
     api.logout();
+    logoutFirebase();
     setUser(null);
     setWallet(null);
     setUserBets([]);

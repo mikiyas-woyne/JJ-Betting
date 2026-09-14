@@ -213,6 +213,13 @@ async function startServer() {
   app.use('/api/matches', matchesRouter);
   app.use('/api/odds', oddsRouter);
 
+  app.get('/api/sports-data/bookmaker', (req: Request, res: Response) => {
+    res.json({
+      selected: sportsApiService.getSelectedBookmaker(),
+      available: sportsApiService.getAvailableBookmakers()
+    });
+  });
+
   // ----------------------------------------------------
   // AUTHENTICATION & AUTHORIZATION API ROUTES
   // ----------------------------------------------------
@@ -720,7 +727,7 @@ async function startServer() {
       auditLogs.unshift({
         id: `audit-${Date.now()}`,
         actorId: 'adm-sync',
-        actorEmail: currentUser.email,
+        actorEmail: (req as AuthenticatedRequest).user?.email || 'admin@jjbetting.com',
         action: 'EXTERNAL_SPORTS_SYNC',
         entityType: 'sports_provider',
         entityId: 'sync-manual',
@@ -778,7 +785,7 @@ async function startServer() {
       auditLogs.unshift({
         id: `audit-${Date.now()}`,
         actorId: 'adm-odds-source',
-        actorEmail: currentUser.email,
+        actorEmail: (req as AuthenticatedRequest).user?.email || 'admin@jjbetting.com',
         action: 'ODDS_SOURCE_UPDATED',
         entityType: 'sports_provider',
         entityId: key,
@@ -812,7 +819,7 @@ async function startServer() {
       auditLogs.unshift({
         id: `audit-${Date.now()}`,
         actorId: 'adm-sports-key',
-        actorEmail: currentUser.email,
+        actorEmail: (req as AuthenticatedRequest).user?.email || 'admin@jjbetting.com',
         action: 'SPORTS_API_KEY_UPDATED',
         entityType: 'sports_provider',
         entityId: 'the-odds-api',
@@ -849,7 +856,7 @@ async function startServer() {
       auditLogs.unshift({
         id: `audit-${Date.now()}`,
         actorId: 'adm-provider',
-        actorEmail: currentUser.email,
+        actorEmail: (req as AuthenticatedRequest).user?.email || 'admin@jjbetting.com',
         action: 'SPORTS_PROVIDER_SWITCHED',
         entityType: 'sports_provider',
         entityId: provider,
@@ -877,7 +884,7 @@ async function startServer() {
     auditLogs.unshift({
       id: `audit-${Date.now()}`,
       actorId: 'adm-desk',
-      actorEmail: currentUser.email,
+      actorEmail: (req as AuthenticatedRequest).user?.email || 'admin@jjbetting.com',
       action: 'MATCH_STATUS_CHANGED',
       entityType: 'match',
       entityId: match.id,
@@ -932,7 +939,7 @@ async function startServer() {
     auditLogs.unshift({
       id: `audit-${Date.now()}`,
       actorId: 'trader-01',
-      actorEmail: currentUser.email,
+      actorEmail: (req as AuthenticatedRequest).user?.email || 'admin@jjbetting.com',
       action: 'ODDS_MODIFIED',
       entityType: 'odds',
       entityId: selection.id,
@@ -1128,7 +1135,7 @@ async function startServer() {
         matchId,
         marketId,
         winningSelectionId: winningSelectionId || '',
-        settledBy: currentUser.email,
+        settledBy: (req as AuthenticatedRequest).user?.email || 'admin@jjbetting.com',
         settledAt: new Date().toISOString(),
         betsAffected: summary.settledBetsCount,
         totalPayout: summary.totalPayout

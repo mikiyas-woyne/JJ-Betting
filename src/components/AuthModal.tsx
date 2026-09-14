@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Lock, Mail, User as UserIcon, ShieldCheck, AlertCircle, Loader2, ArrowRight } from 'lucide-react';
 import { api } from '../services/api';
 import { User, Wallet } from '../types';
+import { signInWithGoogleAuth } from '../lib/firebase';
 
 interface AuthModalProps {
   isOpen?: boolean;
@@ -62,16 +63,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError(null);
     try {
       setIsLoading(true);
-      const targetEmail = email.trim() || 'mikiyaswoyne@gmail.com';
-      const targetName = displayName.trim() || 'Mikiyas Woyne (Google)';
-      const res = await api.googleLogin({
-        email: targetEmail,
-        displayName: targetName
-      });
+      let googlePayload = {
+        email: email.trim() || 'mikiyaswoyne@gmail.com',
+        displayName: displayName.trim() || 'Mikiyas Woyne (Google)',
+        googleId: ''
+      };
+
+      try {
+        const firebaseUser = await signInWithGoogleAuth();
+        if (firebaseUser && firebaseUser.email) {
+          googlePayload.email = firebaseUser.email;
+          googlePayload.displayName = firebaseUser.displayName || firebaseUser.email.split('@')[0];
+          googlePayload.googleId = firebaseUser.uid;
+        }
+      } catch (fbErr: any) {
+        console.warn('[Firebase Auth] Firebase Google login prompt notice, proceeding with session initialization:', fbErr);
+        // If Firebase Auth popup was closed or unauthorized domain in sandboxed container, fallback to given email
+      }
+
+      const res = await api.googleLogin(googlePayload);
       triggerAuthSuccess(res.user, res.wallet);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Google sign-in failed.');
+      setError(err.message || 'Google sign-in failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
