@@ -6,6 +6,7 @@ import {
   Clock,
   ShieldCheck,
   CheckCircle2,
+  XCircle,
   AlertTriangle,
   RefreshCw,
   Trophy,
@@ -31,9 +32,18 @@ import {
   Gauge,
   Info,
   Copy,
-  Check
+  Check,
+  Eye,
+  ZoomIn,
+  ZoomOut,
+  X,
+  Building2,
+  Smartphone,
+  AlertCircle,
+  Filter,
+  User as UserIcon
 } from 'lucide-react';
-import { Match, Bet, WalletTransaction, AuditLog, OddsApiDiagnosticResult } from '../types';
+import { Match, Bet, WalletTransaction, AuditLog, OddsApiDiagnosticResult, DepositRecord } from '../types';
 import { api } from '../services/api';
 import { AdminDepositsSection } from './AdminDepositsSection';
 import { AdminSettlementSection } from './AdminSettlementSection';
@@ -55,6 +65,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // Pending Deposit Management State
+  const [pendingDeposits, setPendingDeposits] = useState<DepositRecord[]>([]);
+  const [isDepositActionLoading, setIsDepositActionLoading] = useState<string | null>(null);
+  const [depositFeedback, setDepositFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [approvingDeposit, setApprovingDeposit] = useState<DepositRecord | null>(null);
+  const [approveNote, setApproveNote] = useState<string>('');
+  const [rejectingDeposit, setRejectingDeposit] = useState<DepositRecord | null>(null);
+  const [rejectReason, setRejectReason] = useState<string>('Transfer not found on bank/telebirr statement');
+  const [customRejectReason, setCustomRejectReason] = useState<string>('');
+  const [previewScreenshotDeposit, setPreviewScreenshotDeposit] = useState<DepositRecord | null>(null);
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+  const [rotation, setRotation] = useState<number>(0);
 
   // Sports Provider Sync State
   const [providerStats, setProviderStats] = useState<any>(null);
@@ -200,21 +223,70 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const loadAdminData = async () => {
     try {
       setIsLoading(true);
-      const [ov, b, txn, audit] = await Promise.all([
+      const [ov, b, txn, audit, pDeposits] = await Promise.all([
         api.getAdminOverview(),
         api.getAdminBets(),
         api.getAdminTransactions(),
-        api.getAdminAuditLogs()
+        api.getAdminAuditLogs(),
+        api.getAdminDeposits('pending')
       ]);
       setOverview(ov);
       setBets(b);
       setTransactions(txn);
       setAuditLogs(audit);
+      setPendingDeposits(pDeposits || []);
       await Promise.all([loadProviderStats(), loadBookmakerSource()]);
     } catch (err) {
       console.error('Failed to load admin data:', err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleApprovePendingDeposit = async (deposit: DepositRecord, note?: string) => {
+    if (deposit.status !== 'PENDING') {
+      setDepositFeedback({ type: 'error', text: `Deposit ${deposit.depositId} is already ${deposit.status}` });
+      return;
+    }
+    try {
+      setIsDepositActionLoading(deposit.depositId);
+      setDepositFeedback(null);
+      await api.approveDeposit(deposit.depositId, note);
+      setDepositFeedback({
+        type: 'success',
+        text: `Deposit #${deposit.depositId.slice(-6)} (+${deposit.amount.toFixed(2)} ETB for ${deposit.username}) approved & credited to user wallet via backend ledger service.`
+      });
+      setApprovingDeposit(null);
+      setApproveNote('');
+      await loadAdminData();
+    } catch (err: any) {
+      setDepositFeedback({ type: 'error', text: err.message || 'Failed to approve deposit' });
+    } finally {
+      setIsDepositActionLoading(null);
+    }
+  };
+
+  const handleRejectPendingDeposit = async (deposit: DepositRecord) => {
+    const finalReason = rejectReason === 'custom' ? customRejectReason.trim() : rejectReason;
+    if (!finalReason) {
+      setDepositFeedback({ type: 'error', text: 'Please specify a rejection reason.' });
+      return;
+    }
+    try {
+      setIsDepositActionLoading(deposit.depositId);
+      setDepositFeedback(null);
+      await api.rejectDeposit(deposit.depositId, finalReason);
+      setDepositFeedback({
+        type: 'success',
+        text: `Deposit #${deposit.depositId.slice(-6)} (${deposit.username}) has been marked as REJECTED.`
+      });
+      setRejectingDeposit(null);
+      setCustomRejectReason('');
+      await loadAdminData();
+    } catch (err: any) {
+      setDepositFeedback({ type: 'error', text: err.message || 'Failed to reject deposit' });
+    } finally {
+      setIsDepositActionLoading(null);
     }
   };
 
@@ -551,6 +623,184 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+
+            {/* PENDING DEPOSIT VERIFICATION QUEUE SECTION */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-lg">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-bold text-white text-sm">Pending Deposit Verification Queue</h3>
+                      <span className="bg-amber-500/20 text-amber-400 font-bold px-2 py-0.5 rounded-full text-[10px] border border-amber-500/30">
+                        {pendingDeposits.length} Action Needed
+                      </span>
+                    </div>
+                    <p className="text-slate-400 text-xs">
+                      Verify user manual bank/Telebirr transfers & approve to credit user wallets via backend ledger
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-start sm:self-auto">
+                  <button
+                    onClick={loadAdminData}
+                    className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                    <span>Refresh Queue</span>
+                  </button>
+
+                  <button
+                    onClick={() => setActiveTab('deposits')}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <ArrowDownCircle className="w-3.5 h-3.5" />
+                    <span>View All Deposits Desk</span>
+                  </button>
+                </div>
+              </div>
+
+              {depositFeedback && (
+                <div className={`p-3 rounded-xl border text-xs flex items-center justify-between gap-2 ${
+                  depositFeedback.type === 'success'
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                    : 'bg-red-500/10 border-red-500/30 text-red-400'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {depositFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+                    <span>{depositFeedback.text}</span>
+                  </div>
+                  <button onClick={() => setDepositFeedback(null)} className="text-slate-400 hover:text-white cursor-pointer">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
+              {pendingDeposits.length === 0 ? (
+                <div className="py-8 text-center space-y-3 bg-slate-950/50 rounded-xl border border-slate-800/60 p-4">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
+                  <h4 className="text-sm font-bold text-white">All Deposit Requests Processed</h4>
+                  <p className="text-slate-400 text-xs max-w-md mx-auto">
+                    There are no pending user deposit verification requests in the queue right now.
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {pendingDeposits.map(dep => {
+                    const isActioning = isDepositActionLoading === dep.depositId;
+                    return (
+                      <div
+                        key={dep.depositId}
+                        className="bg-slate-950 border border-amber-500/30 rounded-xl p-4 space-y-3 flex flex-col justify-between shadow-sm relative overflow-hidden"
+                      >
+                        <div className="absolute top-0 right-0 bg-amber-500 text-slate-950 text-[9px] font-black uppercase px-2.5 py-0.5 rounded-bl-lg">
+                          PENDING VERIFICATION
+                        </div>
+
+                        <div className="space-y-2 pt-1">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-slate-800 text-slate-200 flex items-center justify-center font-bold text-xs">
+                              {dep.username.slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                                <span>{dep.username}</span>
+                                <span className="text-[10px] text-slate-500 font-mono">({dep.userId.slice(-6)})</span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                {new Date(dep.createdAt).toLocaleString()}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="p-2.5 bg-slate-900/80 rounded-lg border border-slate-800 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-400 text-[11px]">Amount Requested:</span>
+                              <span className="text-emerald-400 font-black font-mono text-sm">
+                                +{dep.amount.toFixed(2)} {dep.currency || 'ETB'}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="text-slate-400">Payment Provider:</span>
+                              <span className="text-slate-200 font-semibold capitalize flex items-center gap-1">
+                                {dep.paymentMethod?.toLowerCase().includes('telebirr') ? (
+                                  <Smartphone className="w-3 h-3 text-cyan-400" />
+                                ) : (
+                                  <Building2 className="w-3 h-3 text-amber-400" />
+                                )}
+                                {dep.paymentMethodName || dep.paymentMethod}
+                              </span>
+                            </div>
+
+                            {dep.paymentReference && (
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-slate-400">Reference / FT#:</span>
+                                <span className="text-amber-300 font-mono font-semibold">{dep.paymentReference}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Actions & Proof */}
+                        <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                          {dep.screenshotUrl && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPreviewScreenshotDeposit(dep);
+                                setZoomLevel(1);
+                                setRotation(0);
+                              }}
+                              className="w-full py-1.5 px-2 bg-slate-900 hover:bg-slate-850 text-slate-300 text-[11px] font-semibold rounded-lg border border-slate-800 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-blue-400" />
+                              <span>Inspect Transfer Proof Image</span>
+                            </button>
+                          )}
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={isActioning}
+                              onClick={() => {
+                                setApprovingDeposit(dep);
+                                setApproveNote('');
+                              }}
+                              className="flex-1 py-2 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-sm shadow-emerald-500/20 active:scale-98"
+                            >
+                              {isActioning ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Check className="w-4 h-4" />
+                              )}
+                              <span>Approve</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={isActioning}
+                              onClick={() => {
+                                setRejectingDeposit(dep);
+                                setRejectReason('Transfer not found on bank/telebirr statement');
+                                setCustomRejectReason('');
+                              }}
+                              className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-red-500/20 hover:text-red-400 text-slate-300 font-semibold text-xs border border-slate-700 hover:border-red-500/40 transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                            >
+                              <X className="w-4 h-4" />
+                              <span>Reject</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1610,6 +1860,248 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
       </div>
+
+      {/* APPROVAL CONFIRMATION MODAL WITH STATEMENT NOTE */}
+      {approvingDeposit && (
+        <div className="fixed inset-0 z-70 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                <CheckCircle2 className="w-5 h-5" />
+                <span>Approve Deposit & Credit User Wallet</span>
+              </div>
+              <button
+                onClick={() => setApprovingDeposit(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl space-y-1.5 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Customer Username:</span>
+                <span className="text-white font-semibold">{approvingDeposit.username}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Deposit Amount:</span>
+                <span className="text-emerald-400 font-bold font-mono text-sm">
+                  +{approvingDeposit.amount.toFixed(2)} {approvingDeposit.currency || 'ETB'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Payment Method:</span>
+                <span className="text-slate-200 capitalize">{approvingDeposit.paymentMethodName || approvingDeposit.paymentMethod}</span>
+              </div>
+              {approvingDeposit.paymentReference && (
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Transaction Reference:</span>
+                  <span className="text-amber-300 font-mono">{approvingDeposit.paymentReference}</span>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                Optional Admin Note / Bank Statement Reference:
+              </label>
+              <input
+                type="text"
+                value={approveNote}
+                onChange={(e) => setApproveNote(e.target.value)}
+                placeholder="e.g. Statement verified #FT260991823"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setApprovingDeposit(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDepositActionLoading === approvingDeposit.depositId}
+                onClick={() => handleApprovePendingDeposit(approvingDeposit, approveNote)}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-md shadow-emerald-500/20 cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50 active:scale-98"
+              >
+                {isDepositActionLoading === approvingDeposit.depositId ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Processing Ledger...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Confirm & Credit Wallet</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* REJECTION CONFIRMATION MODAL */}
+      {rejectingDeposit && (
+        <div className="fixed inset-0 z-70 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-red-400 font-bold text-sm">
+                <XCircle className="w-5 h-5" />
+                <span>Reject Deposit Request</span>
+              </div>
+              <button
+                onClick={() => setRejectingDeposit(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl space-y-1 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Customer:</span>
+                <span className="text-white font-semibold">{rejectingDeposit.username}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Amount:</span>
+                <span className="text-slate-200 font-mono font-bold">
+                  {rejectingDeposit.amount.toFixed(2)} {rejectingDeposit.currency || 'ETB'}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-slate-300 block">
+                Select Rejection Reason:
+              </label>
+              <select
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-red-500"
+              >
+                <option value="Transfer not found on bank/telebirr statement">Transfer not found on bank/telebirr statement</option>
+                <option value="Incorrect transfer reference or FT number">Incorrect transfer reference or FT number</option>
+                <option value="Unclear or unreadable receipt screenshot">Unclear or unreadable receipt screenshot</option>
+                <option value="Duplicate deposit submission attempt">Duplicate deposit submission attempt</option>
+                <option value="custom">Other custom reason...</option>
+              </select>
+
+              {rejectReason === 'custom' && (
+                <textarea
+                  value={customRejectReason}
+                  onChange={(e) => setCustomRejectReason(e.target.value)}
+                  placeholder="Enter detailed reason for customer..."
+                  rows={3}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-red-500"
+                />
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setRejectingDeposit(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDepositActionLoading === rejectingDeposit.depositId}
+                onClick={() => handleRejectPendingDeposit(rejectingDeposit)}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-400 text-white text-xs font-bold transition-all shadow-md shadow-red-500/20 cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50 active:scale-98"
+              >
+                {isDepositActionLoading === rejectingDeposit.depositId ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Rejecting...</span>
+                  </>
+                ) : (
+                  <>
+                    <X className="w-4 h-4" />
+                    <span>Confirm Rejection</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SCREENSHOT PROOF ZOOM MODAL */}
+      {previewScreenshotDeposit && (
+        <div className="fixed inset-0 z-70 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full p-5 space-y-4 shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-white font-bold text-sm">
+                <Eye className="w-5 h-5 text-blue-400" />
+                <span>Transfer Proof Screenshot — {previewScreenshotDeposit.username}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setZoomLevel(z => Math.min(z + 0.25, 2.5))}
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer"
+                  title="Zoom In"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setZoomLevel(z => Math.max(z - 0.25, 0.75))}
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer"
+                  title="Zoom Out"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRotation(r => (r + 90) % 360)}
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer"
+                  title="Rotate"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setPreviewScreenshotDeposit(null)}
+                  className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-auto bg-slate-950 border border-slate-800 rounded-xl p-4 flex items-center justify-center min-h-[300px]">
+              <img
+                src={previewScreenshotDeposit.screenshotUrl}
+                alt="Payment Receipt Proof"
+                className="max-h-[60vh] object-contain transition-transform duration-200"
+                style={{
+                  transform: `scale(${zoomLevel}) rotate(${rotation}deg)`
+                }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-xs pt-1">
+              <span className="text-slate-400">
+                Amount: <strong className="text-emerald-400">{previewScreenshotDeposit.amount} ETB</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setPreviewScreenshotDeposit(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs cursor-pointer"
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
