@@ -21,16 +21,16 @@ class AuthService {
     // Synchronously hash default passwords for seed accounts
     const salt = bcrypt.genSaltSync(10);
     
-    // Seed Customer Account
+    // Seed Admin Account (Owner / Admin)
     const customerId = 'usr_licensed_01';
     const customerUser: UserWithHash = {
       id: customerId,
       email: 'mikiyaswoyne@gmail.com',
       displayName: 'Mikiyas W.',
-      role: 'customer',
-      kycStatus: 'tier1_verified',
-      dailyDepositLimit: 50000,
-      singleBetLimit: 10000,
+      role: 'admin',
+      kycStatus: 'fully_verified',
+      dailyDepositLimit: 1000000,
+      singleBetLimit: 500000,
       selfExclusionUntil: null,
       createdAt: new Date('2025-01-10').toISOString(),
       passwordHash: bcrypt.hashSync('password123', salt)
@@ -39,10 +39,35 @@ class AuthService {
     this.wallets.set(customerId, {
       userId: customerId,
       currency: 'ETB',
-      availableBalance: 2450.00,
+      availableBalance: 25000.00,
       lockedBalance: 0,
-      totalDeposited: 5000.00,
-      totalWithdrawn: 1500.00,
+      totalDeposited: 25000.00,
+      totalWithdrawn: 0,
+      updatedAt: new Date().toISOString()
+    });
+
+    // Seed Dedicated Demo Player Account
+    const playerId = 'usr_player_01';
+    const playerUser: UserWithHash = {
+      id: playerId,
+      email: 'player@jjbetting.com',
+      displayName: 'Demo Player',
+      role: 'customer',
+      kycStatus: 'tier1_verified',
+      dailyDepositLimit: 50000,
+      singleBetLimit: 10000,
+      selfExclusionUntil: null,
+      createdAt: new Date('2025-01-15').toISOString(),
+      passwordHash: bcrypt.hashSync('player123', salt)
+    };
+    this.users.set(playerId, playerUser);
+    this.wallets.set(playerId, {
+      userId: playerId,
+      currency: 'ETB',
+      availableBalance: 1500.00,
+      lockedBalance: 0,
+      totalDeposited: 2000.00,
+      totalWithdrawn: 500.00,
       updatedAt: new Date().toISOString()
     });
 
@@ -182,7 +207,7 @@ class AuthService {
     displayName?: string;
   }): { user: User; token: string; wallet: Wallet } {
     const emailNorm = params.email.trim().toLowerCase();
-    const isDesignatedAdmin = emailNorm === 'admin@jjbetting.com';
+    const isDesignatedAdmin = emailNorm === 'admin@jjbetting.com' || emailNorm === 'mikiyaswoyne@gmail.com';
     const defaultRole: UserRole = isDesignatedAdmin ? 'admin' : 'customer';
 
     let existing = this.getUserById(params.uid);

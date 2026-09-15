@@ -643,13 +643,25 @@ async function startServer() {
       const authReq = req as AuthenticatedRequest;
       const adminUser = authReq.user!;
       const { depositId } = req.params;
-      const targetDeposit = depositService.getDepositById(depositId);
+      const { deposit: clientDepositRecord, adminNote } = req.body || {};
+
+      if (clientDepositRecord && clientDepositRecord.depositId === depositId) {
+        depositService.upsertDeposit(clientDepositRecord);
+      }
+
+      let targetDeposit = depositService.getDepositById(depositId);
+      if (!targetDeposit && clientDepositRecord) {
+        depositService.upsertDeposit(clientDepositRecord);
+        targetDeposit = clientDepositRecord;
+      }
+
       const targetWallet = targetDeposit ? authService.getWallet(targetDeposit.userId) : userWallet;
 
       const result = await depositService.approveDeposit({
         depositId,
         adminUser,
         wallet: targetWallet,
+        adminNote,
         transactionsRef: transactions,
         auditLogsRef: auditLogs,
         notificationsRef: notifications
@@ -677,7 +689,12 @@ async function startServer() {
       const authReq = req as AuthenticatedRequest;
       const adminUser = authReq.user!;
       const { depositId } = req.params;
-      const { reason } = req.body;
+      const { reason, deposit: clientDepositRecord } = req.body || {};
+
+      if (clientDepositRecord && clientDepositRecord.depositId === depositId) {
+        depositService.upsertDeposit(clientDepositRecord);
+      }
+
       const rejected = await depositService.rejectDeposit({
         depositId,
         adminUser,

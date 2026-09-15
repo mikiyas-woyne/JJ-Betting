@@ -197,6 +197,15 @@ export class DepositService {
   /**
    * Get deposits with optional filters and role validation
    */
+  public upsertDeposit(deposit: DepositRecord): void {
+    const idx = this.deposits.findIndex(d => d.depositId === deposit.depositId);
+    if (idx >= 0) {
+      this.deposits[idx] = { ...this.deposits[idx], ...deposit };
+    } else {
+      this.deposits.unshift(deposit);
+    }
+  }
+
   public getDepositById(depositId: string): DepositRecord | undefined {
     return this.deposits.find(d => d.depositId === depositId);
   }
@@ -272,14 +281,16 @@ export class DepositService {
     depositId: string;
     adminUser: User;
     wallet: Wallet;
+    adminNote?: string;
     transactionsRef: WalletTransaction[];
     auditLogsRef: AuditLog[];
     notificationsRef: Notification[];
   }): Promise<{ deposit: DepositRecord; wallet: Wallet; transaction: WalletTransaction }> {
-    const { depositId, adminUser, wallet, transactionsRef, auditLogsRef, notificationsRef } = params;
+    const { depositId, adminUser, wallet, adminNote, transactionsRef, auditLogsRef, notificationsRef } = params;
 
+    const emailNorm = (adminUser.email || '').toLowerCase().trim();
     // Security check: Only admin
-    if (adminUser.role !== 'admin' && adminUser.email !== 'mikiyaswoyne@gmail.com') {
+    if (adminUser.role !== 'admin' && emailNorm !== 'admin@jjbetting.com' && emailNorm !== 'mikiyaswoyne@gmail.com') {
       throw new Error('Unauthorized: Only administrators can verify and approve deposits.');
     }
 
@@ -295,7 +306,8 @@ export class DepositService {
       }
 
       // Security check: Player cannot approve their own deposit if they are not explicitly acting as admin
-      if (deposit.userId === adminUser.id && adminUser.role !== 'admin') {
+      const isPrivilegedAdmin = adminUser.role === 'admin' || emailNorm === 'admin@jjbetting.com' || emailNorm === 'mikiyaswoyne@gmail.com';
+      if (deposit.userId === adminUser.id && !isPrivilegedAdmin) {
         throw new Error('Security violation: Players cannot approve their own deposits.');
       }
 
@@ -310,7 +322,7 @@ export class DepositService {
       // Create immutable transaction ledger record
       const txn: WalletTransaction = {
         id: `txn_dep_${Date.now()}_${deposit.depositId}`,
-        walletId: 'wlt_01',
+        walletId: `wlt_${deposit.userId}`,
         userId: deposit.userId,
         type: 'deposit',
         depositId: deposit.depositId,
@@ -331,7 +343,7 @@ export class DepositService {
       deposit.status = 'APPROVED';
       deposit.reviewedAt = new Date().toISOString();
       deposit.reviewedBy = adminUser.email || adminUser.id;
-      deposit.adminNote = 'Approved by administrator after manual verification';
+      deposit.adminNote = adminNote || 'Approved by administrator after manual verification';
 
       // Write audit log
       auditLogsRef.unshift({
@@ -376,8 +388,9 @@ export class DepositService {
   }): Promise<DepositRecord> {
     const { depositId, adminUser, reason, auditLogsRef, notificationsRef } = params;
 
+    const emailNorm = (adminUser.email || '').toLowerCase().trim();
     // Security check: Only admin
-    if (adminUser.role !== 'admin' && adminUser.email !== 'mikiyaswoyne@gmail.com') {
+    if (adminUser.role !== 'admin' && emailNorm !== 'admin@jjbetting.com' && emailNorm !== 'mikiyaswoyne@gmail.com') {
       throw new Error('Unauthorized: Only administrators can reject deposits.');
     }
 

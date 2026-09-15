@@ -17,8 +17,15 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
-        (request.auth.token.email != null && (request.auth.token.email == "mikiyaswoyne@gmail.com" || request.auth.token.email == "admin@jjbetting.com"))
+        (request.auth.token.email != null && (request.auth.token.email == "mikiyaswoyne@gmail.com" || request.auth.token.email == "admin@jjbetting.com")) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin")
       );
+    }
+
+    // Admins registry
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || (isSignedIn() && request.auth.token.email != null && (request.auth.token.email == "mikiyaswoyne@gmail.com" || request.auth.token.email == "admin@jjbetting.com"));
     }
 
     // Public readable catalogs (Sports & Matches)

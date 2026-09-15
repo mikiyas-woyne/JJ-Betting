@@ -193,6 +193,7 @@ export interface DepositRecord {
   username: string;
   paymentMethod: string;
   paymentMethodName?: string;
+  paymentReference?: string;
   amount: number;
   currency: string;
   screenshotUrl: string;
@@ -202,6 +203,7 @@ export interface DepositRecord {
   reviewedAt?: string | null;
   reviewedBy?: string | null;
   adminNote?: string | null;
+  rejectionReason?: string | null;
 }
 
 export interface ManualPaymentDestination {
@@ -227,6 +229,7 @@ export interface WalletTransaction {
   id: string;
   walletId: string;
   userId: string;
+  customerId?: string;
   type: TransactionType;
   amount: number;
   currency?: string;
@@ -241,6 +244,7 @@ export interface WalletTransaction {
   description: string;
   paymentMethod?: string;
   approvedBy?: string;
+  adminId?: string;
   metadata?: Record<string, any>;
   createdAt: string;
 }

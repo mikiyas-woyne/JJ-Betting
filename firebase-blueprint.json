@@ -147,9 +147,25 @@
         "adminNote": { "type": "string" }
       },
       "required": ["depositId", "userId", "username", "paymentMethod", "amount", "currency", "screenshotUrl", "status", "createdAt"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Administrative account record for platform operations and security validation.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string" },
+        "verifiedAt": { "type": "string" }
+      },
+      "required": ["uid", "email", "role"]
     }
   },
   "firestore": {
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "Administrative authority records for system management"
+    },
     "/users/{userId}": {
       "schema": "User",
       "description": "Individual player profiles and configuration"

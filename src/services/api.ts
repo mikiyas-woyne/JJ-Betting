@@ -22,7 +22,10 @@ import {
   saveFirestoreDeposit,
   fetchFirestoreDeposits,
   updateFirestoreDepositStatus,
-  creditFirestoreWalletBalance
+  approveFirestoreDepositTransaction,
+  rejectFirestoreDepositTransaction,
+  fetchFirestoreWallet,
+  fetchFirestoreTransactions
 } from '../lib/firebase';
 
 async function parseResponseJson<T>(res: Response, fallbackMessage: string): Promise<T> {
@@ -232,15 +235,56 @@ export const api = {
   },
 
   async getWallet(): Promise<Wallet> {
-    const res = await fetch('/api/wallet', { headers: getAuthHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch wallet');
-    return res.json();
+    const userUid = auth.currentUser?.uid;
+    if (userUid) {
+      const fWallet = await fetchFirestoreWallet(userUid);
+      if (fWallet) {
+        return fWallet;
+      }
+    }
+
+    try {
+      const res = await fetch('/api/wallet', { headers: getAuthHeaders() });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch {
+      // server unreachable
+    }
+
+    return {
+      userId: userUid || 'usr_licensed_01',
+      availableBalance: 1000,
+      currency: 'ETB',
+      lockedBalance: 0,
+      totalDeposited: 1000,
+      totalWithdrawn: 0,
+      updatedAt: new Date().toISOString()
+    };
   },
 
   async getTransactions(): Promise<WalletTransaction[]> {
-    const res = await fetch('/api/wallet/transactions', { headers: getAuthHeaders() });
-    if (!res.ok) throw new Error('Failed to fetch transactions');
-    return res.json();
+    const userUid = auth.currentUser?.uid;
+    let firestoreTxns: WalletTransaction[] = [];
+    if (userUid) {
+      firestoreTxns = await fetchFirestoreTransactions(userUid);
+    }
+
+    let serverTxns: WalletTransaction[] = [];
+    try {
+      const res = await fetch('/api/wallet/transactions', { headers: getAuthHeaders() });
+      if (res.ok) {
+        serverTxns = await res.json();
+      }
+    } catch {
+      // ignore
+    }
+
+    const map = new Map<string, WalletTransaction>();
+    for (const t of serverTxns) map.set(t.id, t);
+    for (const t of firestoreTxns) map.set(t.id, t);
+
+    return Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
 
   async depositFunds(amount: number, providerId: string, referenceId?: string, paymentAccount?: string): Promise<{ success: boolean; wallet: Wallet; transaction: WalletTransaction }> {
@@ -780,8 +824,8 @@ export const api = {
 
     const map = new Map<string, DepositRecord>();
     for (const d of localDeposits) map.set(d.depositId, d);
-    for (const d of firestoreDeposits) map.set(d.depositId, d);
     for (const d of serverDeposits) map.set(d.depositId, d);
+    for (const d of firestoreDeposits) map.set(d.depositId, d);
 
     return Array.from(map.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
@@ -813,8 +857,8 @@ export const api = {
 
     const map = new Map<string, DepositRecord>();
     for (const d of localDeposits) map.set(d.depositId, d);
-    for (const d of firestoreDeposits) map.set(d.depositId, d);
     for (const d of serverDeposits) map.set(d.depositId, d);
+    for (const d of firestoreDeposits) map.set(d.depositId, d);
 
     let list = Array.from(map.values());
     if (status && status !== 'all') list = list.filter(d => d.status === status.toUpperCase());
@@ -853,7 +897,7 @@ export const api = {
     };
   },
 
-  async approveDeposit(depositId: string): Promise<{
+  async approveDeposit(depositId: string, adminNote?: string): Promise<{
     success: boolean;
     deposit: DepositRecord;
     wallet: Wallet;
@@ -861,12 +905,19 @@ export const api = {
     message: string;
   }> {
     const adminEmail = auth.currentUser?.email || 'admin@jjbetting.com';
+    const adminId = auth.currentUser?.uid || 'usr_admin_01';
 
+    // 1. First locate existing deposit record
+    const all = await this.getAdminDeposits('all');
+    const target = all.find(d => d.depositId === depositId);
+
+    // 2. Call server route
     let serverRes: any = null;
     try {
       const res = await fetch(`/api/admin/deposits/${depositId}/approve`, {
         method: 'POST',
-        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' }
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deposit: target, adminNote })
       });
       if (res.ok) {
         serverRes = await res.json();
@@ -875,14 +926,18 @@ export const api = {
       // ignore
     }
 
-    await updateFirestoreDepositStatus(depositId, 'APPROVED', adminEmail);
-
-    const all = await this.getAdminDeposits('all');
-    const target = all.find(d => d.depositId === depositId);
-    if (target) {
-      await creditFirestoreWalletBalance(target.userId, target.amount);
+    // 3. Atomically approve in Firestore using runTransaction
+    let firestoreResult: { deposit: DepositRecord; wallet: Wallet; transaction: WalletTransaction } | null = null;
+    try {
+      firestoreResult = await approveFirestoreDepositTransaction(depositId, { id: adminId, email: adminEmail }, adminNote);
+    } catch (fErr: any) {
+      console.warn('[Firestore] approveFirestoreDepositTransaction notice:', fErr);
+      if (fErr.message && fErr.message.includes('already APPROVED')) {
+        throw fErr;
+      }
     }
 
+    // 4. Update localStorage
     try {
       const stored = localStorage.getItem('apex_local_deposits');
       if (stored) {
@@ -892,6 +947,7 @@ export const api = {
           item.status = 'APPROVED';
           item.reviewedAt = new Date().toISOString();
           item.reviewedBy = adminEmail;
+          item.adminNote = adminNote || 'Approved by administrator after verification';
           localStorage.setItem('apex_local_deposits', JSON.stringify(list));
         }
       }
@@ -899,10 +955,20 @@ export const api = {
       // ignore
     }
 
+    if (firestoreResult) {
+      return {
+        success: true,
+        deposit: firestoreResult.deposit,
+        wallet: firestoreResult.wallet,
+        transaction: firestoreResult.transaction,
+        message: 'Deposit verified and approved successfully. Wallet balance credited.'
+      };
+    }
+
     if (serverRes) return serverRes;
 
     const approvedDeposit: DepositRecord = target
-      ? { ...target, status: 'APPROVED', reviewedAt: new Date().toISOString(), reviewedBy: adminEmail }
+      ? { ...target, status: 'APPROVED', reviewedAt: new Date().toISOString(), reviewedBy: adminEmail, adminNote: adminNote || 'Approved by administrator after verification' }
       : {
           depositId,
           userId: 'usr_licensed_01',
@@ -914,12 +980,13 @@ export const api = {
           status: 'APPROVED',
           createdAt: new Date().toISOString(),
           reviewedAt: new Date().toISOString(),
-          reviewedBy: adminEmail
+          reviewedBy: adminEmail,
+          adminNote: adminNote || 'Approved by administrator after verification'
         };
 
     const mockWallet: Wallet = {
       userId: approvedDeposit.userId,
-      availableBalance: 5000,
+      availableBalance: 1500,
       currency: 'ETB',
       lockedBalance: 0,
       totalDeposited: approvedDeposit.amount,
@@ -934,8 +1001,8 @@ export const api = {
       type: 'deposit',
       amount: approvedDeposit.amount,
       fee: 0,
-      balanceBefore: 4500,
-      balanceAfter: 5000,
+      balanceBefore: 1000,
+      balanceAfter: 1500,
       status: 'completed',
       referenceId: depositId,
       description: `Manual Deposit Approved (${approvedDeposit.paymentMethod})`,
@@ -957,13 +1024,17 @@ export const api = {
     message: string;
   }> {
     const adminEmail = auth.currentUser?.email || 'admin@jjbetting.com';
+    const adminId = auth.currentUser?.uid || 'usr_admin_01';
+
+    const all = await this.getAdminDeposits('all');
+    const target = all.find(d => d.depositId === depositId);
 
     let serverRes: any = null;
     try {
       const res = await fetch(`/api/admin/deposits/${depositId}/reject`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason })
+        body: JSON.stringify({ reason, deposit: target })
       });
       if (res.ok) {
         serverRes = await res.json();
@@ -972,7 +1043,16 @@ export const api = {
       // ignore
     }
 
-    await updateFirestoreDepositStatus(depositId, 'REJECTED', adminEmail, reason);
+    let firestoreRejected: DepositRecord | null = null;
+    try {
+      firestoreRejected = await rejectFirestoreDepositTransaction(
+        depositId,
+        { id: adminId, email: adminEmail },
+        reason || 'Deposit rejected: receipt could not be verified.'
+      );
+    } catch (fErr) {
+      console.warn('[Firestore] rejectFirestoreDepositTransaction notice:', fErr);
+    }
 
     try {
       const stored = localStorage.getItem('apex_local_deposits');
@@ -984,6 +1064,7 @@ export const api = {
           item.reviewedAt = new Date().toISOString();
           item.reviewedBy = adminEmail;
           item.adminNote = reason || null;
+          item.rejectionReason = reason || null;
           localStorage.setItem('apex_local_deposits', JSON.stringify(list));
         }
       }
@@ -991,12 +1072,18 @@ export const api = {
       // ignore
     }
 
+    if (firestoreRejected) {
+      return {
+        success: true,
+        deposit: firestoreRejected,
+        message: 'Deposit has been marked as REJECTED.'
+      };
+    }
+
     if (serverRes) return serverRes;
 
-    const all = await this.getAdminDeposits('all');
-    const target = all.find(d => d.depositId === depositId);
     const rejectedDeposit: DepositRecord = target
-      ? { ...target, status: 'REJECTED', reviewedAt: new Date().toISOString(), reviewedBy: adminEmail, adminNote: reason || null }
+      ? { ...target, status: 'REJECTED', reviewedAt: new Date().toISOString(), reviewedBy: adminEmail, adminNote: reason || null, rejectionReason: reason || null }
       : {
           depositId,
           userId: 'usr_licensed_01',
@@ -1009,7 +1096,8 @@ export const api = {
           createdAt: new Date().toISOString(),
           reviewedAt: new Date().toISOString(),
           reviewedBy: adminEmail,
-          adminNote: reason || null
+          adminNote: reason || null,
+          rejectionReason: reason || null
         };
 
     return {

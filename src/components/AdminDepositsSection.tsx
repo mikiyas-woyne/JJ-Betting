@@ -60,6 +60,10 @@ export const AdminDepositsSection: React.FC<AdminDepositsSectionProps> = ({
   const [rejectReason, setRejectReason] = useState<string>('Transfer not found on bank/telebirr statement');
   const [customReason, setCustomReason] = useState<string>('');
 
+  // Approve confirmation modal state (with optional note)
+  const [approvingDeposit, setApprovingDeposit] = useState<DepositRecord | null>(null);
+  const [approveNote, setApproveNote] = useState<string>('');
+
   const loadDepositsData = async () => {
     try {
       setIsLoading(true);
@@ -91,7 +95,7 @@ export const AdminDepositsSection: React.FC<AdminDepositsSectionProps> = ({
   };
 
   // Handle Deposit Approval
-  const handleApprove = async (deposit: DepositRecord) => {
+  const handleApprove = async (deposit: DepositRecord, note?: string) => {
     if (deposit.status !== 'PENDING') {
       setFeedbackMessage({ type: 'error', text: `Deposit ${deposit.depositId} is already ${deposit.status}` });
       return;
@@ -100,7 +104,7 @@ export const AdminDepositsSection: React.FC<AdminDepositsSectionProps> = ({
     try {
       setIsActionLoading(deposit.depositId);
       setFeedbackMessage(null);
-      const res = await api.approveDeposit(deposit.depositId);
+      const res = await api.approveDeposit(deposit.depositId, note);
       
       setFeedbackMessage({
         type: 'success',
@@ -115,6 +119,9 @@ export const AdminDepositsSection: React.FC<AdminDepositsSectionProps> = ({
       if (previewDeposit?.depositId === deposit.depositId) {
         setPreviewDeposit(res.deposit);
       }
+
+      setApprovingDeposit(null);
+      setApproveNote('');
 
       // Refresh list and metrics
       await loadDepositsData();
@@ -448,7 +455,10 @@ export const AdminDepositsSection: React.FC<AdminDepositsSectionProps> = ({
                             <button
                               type="button"
                               disabled={isActioning}
-                              onClick={() => handleApprove(dep)}
+                              onClick={() => {
+                                setApprovingDeposit(dep);
+                                setApproveNote('');
+                              }}
                               className="px-2.5 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
                               title="Verify & Credit Wallet"
                             >
@@ -603,7 +613,10 @@ export const AdminDepositsSection: React.FC<AdminDepositsSectionProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleApprove(previewDeposit)}
+                    onClick={() => {
+                      setApprovingDeposit(previewDeposit);
+                      setApproveNote('');
+                    }}
                     className="flex-1 sm:flex-none px-5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-all shadow-md shadow-emerald-500/20 cursor-pointer flex items-center justify-center gap-1.5 active:scale-98"
                   >
                     <Check className="w-4 h-4" />
@@ -705,6 +718,90 @@ export const AdminDepositsSection: React.FC<AdminDepositsSectionProps> = ({
                 className="flex-1 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold transition-all shadow-md shadow-rose-500/20 cursor-pointer"
               >
                 Confirm Rejection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. APPROVAL CONFIRMATION MODAL WITH OPTIONAL NOTE */}
+      {approvingDeposit && (
+        <div className="fixed inset-0 z-70 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm">
+                <CheckCircle2 className="w-5 h-5" />
+                <span>Approve Deposit & Credit Wallet</span>
+              </div>
+              <button
+                onClick={() => setApprovingDeposit(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl space-y-1.5 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Customer:</span>
+                <span className="text-white font-semibold">{approvingDeposit.username}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Deposit Amount:</span>
+                <span className="text-emerald-400 font-bold font-mono text-sm">
+                  +{approvingDeposit.amount.toFixed(2)} {approvingDeposit.currency || 'ETB'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-400">Payment Method:</span>
+                <span className="text-slate-200 capitalize">{approvingDeposit.paymentMethodName || approvingDeposit.paymentMethod}</span>
+              </div>
+              {approvingDeposit.paymentReference && (
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400">Reference:</span>
+                  <span className="text-amber-300 font-mono">{approvingDeposit.paymentReference}</span>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="text-[11px] font-bold text-slate-300 block mb-1">
+                Optional Admin Note / Statement Reference:
+              </label>
+              <input
+                type="text"
+                value={approveNote}
+                onChange={(e) => setApproveNote(e.target.value)}
+                placeholder="e.g., Verified on CBE statement #FT260991823"
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setApprovingDeposit(null)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isActionLoading === approvingDeposit.depositId}
+                onClick={() => handleApprove(approvingDeposit, approveNote)}
+                className="flex-1 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-md shadow-emerald-500/20 cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50 active:scale-98"
+              >
+                {isActionLoading === approvingDeposit.depositId ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Confirm & Credit Wallet</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

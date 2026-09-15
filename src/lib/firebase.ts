@@ -24,10 +24,11 @@ import {
   getDocs,
   query,
   where,
-  increment
+  increment,
+  runTransaction
 } from 'firebase/firestore';
 import firebaseConfigFile from '../../firebase-applet-config.json';
-import { User, UserRole, DepositRecord } from '../types';
+import { User, UserRole, DepositRecord, Wallet, WalletTransaction } from '../types';
 
 // Support VITE_FIREBASE_* environment variables (common in Vercel / production deployments)
 // with seamless fallback to firebase-applet-config.json
@@ -223,20 +224,34 @@ export async function getOrCreateFirestoreUser(
   const normalizedEmail = (firebaseUser.email || '').toLowerCase().trim();
 
   // Determine server-authorized role: only strictly configured admin emails receive admin
-  const isDesignatedAdmin = normalizedEmail === 'admin@jjbetting.com';
+  const isDesignatedAdmin = normalizedEmail === 'admin@jjbetting.com' || normalizedEmail === 'mikiyaswoyne@gmail.com';
   const defaultRole: UserRole = isDesignatedAdmin ? 'admin' : 'customer';
+
+  // If designated admin, ensure admin document exists in /admins/{uid}
+  if (isDesignatedAdmin) {
+    setDoc(doc(db, 'admins', uid), {
+      uid,
+      email: normalizedEmail,
+      role: 'admin',
+      verifiedAt: now
+    }, { merge: true }).catch(() => {});
+  }
 
   try {
     const docSnap = await getDoc(userDocRef);
 
     if (docSnap.exists()) {
       const existingData = docSnap.data();
-      const resolvedRole: UserRole = (existingData.role as UserRole) || defaultRole;
+      const resolvedRole: UserRole = isDesignatedAdmin ? 'admin' : ((existingData.role as UserRole) || defaultRole);
 
       // Update only harmless client-side profile fields, preserving role and permissions
       const updatedFields: Record<string, any> = {
         updatedAt: now
       };
+      if (isDesignatedAdmin && existingData.role !== 'admin') {
+        updatedFields.role = 'admin';
+        updatedFields.kycStatus = 'fully_verified';
+      }
       if (firebaseUser.displayName && firebaseUser.displayName !== existingData.displayName) {
         updatedFields.displayName = firebaseUser.displayName;
       }
@@ -408,31 +423,242 @@ export async function updateFirestoreDepositStatus(
 }
 
 /**
- * Credit user wallet balance in Firestore upon deposit approval
+ * Atomically approve deposit in Firestore using runTransaction:
+ * - Checks status is PENDING
+ * - Fails if not PENDING (prevents duplicate approval)
+ * - Sets status to APPROVED
+ * - Credits customer's wallet atomically
+ * - Creates immutable wallet transaction
+ * - Creates immutable audit log
  */
-export async function creditFirestoreWalletBalance(userId: string, amount: number): Promise<void> {
+export async function approveFirestoreDepositTransaction(
+  depositId: string,
+  adminUser: { id: string; email: string },
+  adminNote?: string
+): Promise<{ deposit: DepositRecord; wallet: Wallet; transaction: WalletTransaction }> {
+  return await runTransaction(db, async (txn) => {
+    const depositRef = doc(db, 'deposits', depositId);
+    const depositSnap = await txn.get(depositRef);
+
+    if (!depositSnap.exists()) {
+      throw new Error(`Deposit ${depositId} not found in Firestore.`);
+    }
+
+    const depData = depositSnap.data() as DepositRecord;
+    if (depData.status !== 'PENDING') {
+      throw new Error(`Deposit is already ${depData.status} and cannot be approved again.`);
+    }
+
+    const customerId = depData.userId;
+    const amount = Number(depData.amount) || 0;
+    const now = new Date().toISOString();
+    const adminId = adminUser.id || 'usr_admin_01';
+    const adminEmail = adminUser.email || 'admin@jjbetting.com';
+
+    // 1. Read Customer's Wallet
+    const walletRef = doc(db, 'wallets', customerId);
+    const walletSnap = await txn.get(walletRef);
+
+    let currentBalance = 0;
+    let currentTotalDeposited = 0;
+    let currentLocked = 0;
+    let currentTotalWithdrawn = 0;
+
+    if (walletSnap.exists()) {
+      const wData = walletSnap.data();
+      currentBalance = Number(wData.availableBalance) || 0;
+      currentTotalDeposited = Number(wData.totalDeposited) || 0;
+      currentLocked = Number(wData.lockedBalance) || 0;
+      currentTotalWithdrawn = Number(wData.totalWithdrawn) || 0;
+    }
+
+    const newBalance = Math.round((currentBalance + amount) * 100) / 100;
+    const newTotalDeposited = Math.round((currentTotalDeposited + amount) * 100) / 100;
+
+    // 2. Update Deposit Document
+    const updatedDeposit: DepositRecord = {
+      ...depData,
+      status: 'APPROVED',
+      reviewedAt: now,
+      reviewedBy: adminEmail,
+      adminNote: adminNote || 'Approved by administrator after verification'
+    };
+    txn.update(depositRef, {
+      status: 'APPROVED',
+      reviewedAt: now,
+      reviewedBy: adminEmail,
+      adminNote: adminNote || 'Approved by administrator after verification'
+    });
+
+    // 3. Update Wallet Document
+    const updatedWallet: Wallet = {
+      userId: customerId,
+      availableBalance: newBalance,
+      lockedBalance: currentLocked,
+      totalDeposited: newTotalDeposited,
+      totalWithdrawn: currentTotalWithdrawn,
+      currency: 'ETB',
+      updatedAt: now
+    };
+    txn.set(walletRef, updatedWallet, { merge: true });
+
+    // 4. Create Immutable Wallet Transaction
+    const txnId = `txn_dep_${Date.now()}_${depositId}`;
+    const txnRef = doc(db, 'transactions', txnId);
+    const ledgerTxn: WalletTransaction = {
+      id: txnId,
+      walletId: `wlt_${customerId}`,
+      userId: customerId,
+      customerId,
+      type: 'deposit',
+      amount: amount,
+      currency: 'ETB',
+      fee: 0,
+      balanceBefore: currentBalance,
+      balanceAfter: newBalance,
+      status: 'completed',
+      depositId: depositId,
+      referenceId: depositId,
+      description: `Manual Deposit Approved (${depData.paymentMethodName || depData.paymentMethod})`,
+      paymentMethod: depData.paymentMethod,
+      approvedBy: adminEmail,
+      adminId,
+      createdAt: now
+    };
+    txn.set(txnRef, ledgerTxn);
+
+    // 5. Create Immutable Audit Log
+    const auditId = `audit_${Date.now()}_${depositId}`;
+    const auditRef = doc(db, 'audit_logs', auditId);
+    txn.set(auditRef, {
+      id: auditId,
+      actorId: adminId,
+      actorEmail: adminEmail,
+      adminId,
+      action: 'DEPOSIT_APPROVED',
+      entityType: 'deposit',
+      entityId: depositId,
+      depositId,
+      customerId,
+      amount,
+      previousStatus: 'PENDING',
+      newStatus: 'APPROVED',
+      details: `Admin ${adminEmail} approved deposit ${depositId} (+${amount} ETB) for player ${depData.username} (${customerId}). Balance: ${currentBalance} -> ${newBalance} ETB.`,
+      timestamp: now,
+      createdAt: now
+    });
+
+    return {
+      deposit: updatedDeposit,
+      wallet: updatedWallet,
+      transaction: ledgerTxn
+    };
+  });
+}
+
+/**
+ * Atomically reject deposit in Firestore:
+ * - Checks status is PENDING
+ * - Sets status to REJECTED
+ * - Does NOT credit wallet
+ * - Creates immutable audit log
+ */
+export async function rejectFirestoreDepositTransaction(
+  depositId: string,
+  adminUser: { id: string; email: string },
+  reason: string
+): Promise<DepositRecord> {
+  return await runTransaction(db, async (txn) => {
+    const depositRef = doc(db, 'deposits', depositId);
+    const depositSnap = await txn.get(depositRef);
+
+    if (!depositSnap.exists()) {
+      throw new Error(`Deposit ${depositId} not found in Firestore.`);
+    }
+
+    const depData = depositSnap.data() as DepositRecord;
+    if (depData.status !== 'PENDING') {
+      throw new Error(`Deposit is already ${depData.status} and cannot be modified.`);
+    }
+
+    const now = new Date().toISOString();
+    const adminId = adminUser.id || 'usr_admin_01';
+    const adminEmail = adminUser.email || 'admin@jjbetting.com';
+
+    const updatedDeposit: DepositRecord = {
+      ...depData,
+      status: 'REJECTED',
+      reviewedAt: now,
+      reviewedBy: adminEmail,
+      rejectionReason: reason,
+      adminNote: reason
+    };
+
+    txn.update(depositRef, {
+      status: 'REJECTED',
+      reviewedAt: now,
+      reviewedBy: adminEmail,
+      rejectionReason: reason,
+      adminNote: reason
+    });
+
+    const auditId = `audit_${Date.now()}_${depositId}`;
+    const auditRef = doc(db, 'audit_logs', auditId);
+    txn.set(auditRef, {
+      id: auditId,
+      actorId: adminId,
+      actorEmail: adminEmail,
+      adminId,
+      action: 'DEPOSIT_REJECTED',
+      entityType: 'deposit',
+      entityId: depositId,
+      depositId,
+      customerId: depData.userId,
+      amount: depData.amount,
+      previousStatus: 'PENDING',
+      newStatus: 'REJECTED',
+      rejectionReason: reason,
+      details: `Admin ${adminEmail} rejected deposit ${depositId} (${depData.amount} ETB). Reason: ${reason}`,
+      timestamp: now,
+      createdAt: now
+    });
+
+    return updatedDeposit;
+  });
+}
+
+/**
+ * Fetch wallet directly from Firestore
+ */
+export async function fetchFirestoreWallet(userId: string): Promise<Wallet | null> {
   try {
     const walletRef = doc(db, 'wallets', userId);
-    const walletSnap = await getDoc(walletRef);
-    if (walletSnap.exists()) {
-      await updateDoc(walletRef, {
-        availableBalance: increment(amount),
-        totalDeposited: increment(amount),
-        updatedAt: new Date().toISOString()
-      });
-    } else {
-      await setDoc(walletRef, {
-        userId,
-        availableBalance: 1000 + amount, // base 1000 ETB + deposit
-        currency: 'ETB',
-        lockedBalance: 0,
-        totalDeposited: amount,
-        totalWithdrawn: 0,
-        updatedAt: new Date().toISOString()
-      });
+    const snap = await getDoc(walletRef);
+    if (snap.exists()) {
+      return snap.data() as Wallet;
     }
   } catch (err) {
-    console.warn('[Firestore] Notice updating wallet balance in Firestore:', err);
+    console.warn('[Firestore] Failed to fetch wallet from Firestore:', err);
+  }
+  return null;
+}
+
+/**
+ * Fetch transactions directly from Firestore
+ */
+export async function fetchFirestoreTransactions(userId: string): Promise<WalletTransaction[]> {
+  try {
+    const txnRef = collection(db, 'transactions');
+    const q = query(txnRef, where('userId', '==', userId));
+    const snap = await getDocs(q);
+    const txns: WalletTransaction[] = [];
+    snap.forEach((d) => {
+      txns.push(d.data() as WalletTransaction);
+    });
+    return txns.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  } catch (err) {
+    console.warn('[Firestore] Failed to fetch transactions from Firestore:', err);
+    return [];
   }
 }
 
