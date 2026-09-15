@@ -78,6 +78,10 @@ export const AdminDepositsSection: React.FC<AdminDepositsSectionProps> = ({
 
   useEffect(() => {
     loadDepositsData();
+    const interval = setInterval(() => {
+      loadDepositsData();
+    }, 8000);
+    return () => clearInterval(interval);
   }, [statusFilter]);
 
   // Handle Search on Submit or debounce

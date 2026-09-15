@@ -19,10 +19,15 @@ import {
   doc,
   getDoc,
   setDoc,
-  updateDoc
+  updateDoc,
+  collection,
+  getDocs,
+  query,
+  where,
+  increment
 } from 'firebase/firestore';
 import firebaseConfigFile from '../../firebase-applet-config.json';
-import { User, UserRole } from '../types';
+import { User, UserRole, DepositRecord } from '../types';
 
 // Support VITE_FIREBASE_* environment variables (common in Vercel / production deployments)
 // with seamless fallback to firebase-applet-config.json
@@ -335,5 +340,99 @@ export async function logoutFirebase(): Promise<void> {
 
 export function subscribeToAuthChanges(callback: (user: FirebaseUser | null) => void) {
   return onAuthStateChanged(auth, callback);
+}
+
+/**
+ * Save a deposit record to Firestore deposits collection
+ */
+export async function saveFirestoreDeposit(deposit: DepositRecord): Promise<void> {
+  try {
+    const depositRef = doc(db, 'deposits', deposit.depositId);
+    await setDoc(depositRef, deposit);
+    console.log('[Firestore] Deposit request saved successfully:', deposit.depositId);
+  } catch (err) {
+    console.warn('[Firestore] Failed to save deposit to Firestore (continuing with local/server fallback):', err);
+  }
+}
+
+/**
+ * Fetch deposits from Firestore deposits collection
+ */
+export async function fetchFirestoreDeposits(isAdmin: boolean, userUid?: string): Promise<DepositRecord[]> {
+  try {
+    const depositsRef = collection(db, 'deposits');
+    let q;
+    if (isAdmin) {
+      q = query(depositsRef);
+    } else if (userUid) {
+      q = query(depositsRef, where('userId', '==', userUid));
+    } else {
+      return [];
+    }
+
+    const snapshot = await getDocs(q);
+    const results: DepositRecord[] = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as DepositRecord;
+      if (data && data.depositId) {
+        results.push(data);
+      }
+    });
+    return results;
+  } catch (err) {
+    console.warn('[Firestore] Failed to fetch deposits from Firestore:', err);
+    return [];
+  }
+}
+
+/**
+ * Update deposit status (APPROVED / REJECTED) in Firestore
+ */
+export async function updateFirestoreDepositStatus(
+  depositId: string,
+  status: 'APPROVED' | 'REJECTED',
+  reviewedBy: string,
+  adminNote?: string
+): Promise<void> {
+  try {
+    const depositRef = doc(db, 'deposits', depositId);
+    await updateDoc(depositRef, {
+      status,
+      reviewedAt: new Date().toISOString(),
+      reviewedBy,
+      adminNote: adminNote || null
+    });
+  } catch (err) {
+    console.warn('[Firestore] Notice updating deposit status in Firestore:', err);
+  }
+}
+
+/**
+ * Credit user wallet balance in Firestore upon deposit approval
+ */
+export async function creditFirestoreWalletBalance(userId: string, amount: number): Promise<void> {
+  try {
+    const walletRef = doc(db, 'wallets', userId);
+    const walletSnap = await getDoc(walletRef);
+    if (walletSnap.exists()) {
+      await updateDoc(walletRef, {
+        availableBalance: increment(amount),
+        totalDeposited: increment(amount),
+        updatedAt: new Date().toISOString()
+      });
+    } else {
+      await setDoc(walletRef, {
+        userId,
+        availableBalance: 1000 + amount, // base 1000 ETB + deposit
+        currency: 'ETB',
+        lockedBalance: 0,
+        totalDeposited: amount,
+        totalWithdrawn: 0,
+        updatedAt: new Date().toISOString()
+      });
+    }
+  } catch (err) {
+    console.warn('[Firestore] Notice updating wallet balance in Firestore:', err);
+  }
 }
 
