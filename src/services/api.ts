@@ -147,6 +147,20 @@ export const api = {
     return json;
   },
 
+  async syncFirebaseSession(data: { uid: string; email: string; displayName?: string }): Promise<{ user: User; token: string; wallet: Wallet }> {
+    const res = await fetch('/api/auth/sync-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    const json = await parseResponseJson<any>(res, 'Session synchronization failed');
+    if (!res.ok) throw new Error(json.error || 'Session synchronization failed');
+    if (json.token) {
+      localStorage.setItem('jjbetting_token', json.token);
+    }
+    return json;
+  },
+
   async getMe(): Promise<{ user: User; wallet: Wallet }> {
     const res = await fetch('/api/auth/me', {
       headers: getAuthHeaders()

@@ -261,6 +261,19 @@ async function startServer() {
     }
   });
 
+  app.post('/api/auth/sync-session', async (req: Request, res: Response) => {
+    try {
+      const { uid, email, displayName } = req.body;
+      if (!uid || !email) {
+        return res.status(400).json({ error: 'UID and email are required to sync session' });
+      }
+      const result = authService.syncFirebaseUser({ uid, email, displayName });
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || 'Failed to sync session' });
+    }
+  });
+
   app.get('/api/auth/me', requireAuth, (req: AuthenticatedRequest, res: Response) => {
     const user = req.user!;
     const wallet = authService.getWallet(user.id);

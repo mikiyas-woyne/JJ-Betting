@@ -140,7 +140,9 @@ class AuthService {
     const passwordHash = await bcrypt.hash(params.password, salt);
 
     const userId = `usr_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    const role: UserRole = params.role || (emailNorm.includes('admin') ? 'admin' : 'customer');
+    // Security: Only strictly designated admin email can be admin; client role selection is rejected
+    const isDesignatedAdmin = emailNorm === 'admin@jjbetting.com';
+    const role: UserRole = isDesignatedAdmin ? 'admin' : 'customer';
 
     const newUser: UserWithHash = {
       id: userId,
@@ -167,6 +169,78 @@ class AuthService {
 
     this.users.set(userId, newUser);
     this.wallets.set(userId, newWallet);
+
+    const user = this.sanitizeUser(newUser);
+    const token = this.generateToken(user);
+
+    return { user, token, wallet: newWallet };
+  }
+
+  public syncFirebaseUser(params: {
+    uid: string;
+    email: string;
+    displayName?: string;
+  }): { user: User; token: string; wallet: Wallet } {
+    const emailNorm = params.email.trim().toLowerCase();
+    const isDesignatedAdmin = emailNorm === 'admin@jjbetting.com';
+    const defaultRole: UserRole = isDesignatedAdmin ? 'admin' : 'customer';
+
+    let existing = this.getUserById(params.uid);
+    if (!existing) {
+      existing = this.getUserByEmail(emailNorm);
+    }
+
+    if (existing) {
+      const preservedRole: UserRole = isDesignatedAdmin ? 'admin' : existing.role;
+      const updatedUser: UserWithHash = {
+        ...existing,
+        id: params.uid,
+        displayName: params.displayName?.trim() || existing.displayName,
+        role: preservedRole,
+        passwordHash: (existing as any).passwordHash || ''
+      };
+      this.users.set(params.uid, updatedUser);
+
+      // Ensure wallet exists for this UID
+      const existingWallet = this.getWallet(existing.id);
+      const wallet: Wallet = {
+        ...existingWallet,
+        userId: params.uid,
+        updatedAt: new Date().toISOString()
+      };
+      this.wallets.set(params.uid, wallet);
+
+      const user = this.sanitizeUser(updatedUser);
+      const token = this.generateToken(user);
+      return { user, token, wallet };
+    }
+
+    // Provision new user from Firebase Auth
+    const newUser: UserWithHash = {
+      id: params.uid,
+      email: emailNorm,
+      displayName: params.displayName?.trim() || emailNorm.split('@')[0],
+      role: defaultRole,
+      kycStatus: defaultRole === 'admin' ? 'fully_verified' : 'tier1_verified',
+      dailyDepositLimit: 50000,
+      singleBetLimit: 10000,
+      selfExclusionUntil: null,
+      createdAt: new Date().toISOString(),
+      passwordHash: ''
+    };
+
+    const newWallet: Wallet = {
+      userId: params.uid,
+      currency: 'ETB',
+      availableBalance: defaultRole === 'admin' ? 50000.00 : 1000.00,
+      lockedBalance: 0,
+      totalDeposited: defaultRole === 'admin' ? 50000.00 : 1000.00,
+      totalWithdrawn: 0,
+      updatedAt: new Date().toISOString()
+    };
+
+    this.users.set(params.uid, newUser);
+    this.wallets.set(params.uid, newWallet);
 
     const user = this.sanitizeUser(newUser);
     const token = this.generateToken(user);
@@ -210,22 +284,12 @@ class AuthService {
     googleId?: string;
   }): Promise<{ user: User; token: string; wallet: Wallet }> {
     const emailNorm = params.email.trim().toLowerCase();
-    
-    let existingUser = this.getUserByEmail(emailNorm);
-    if (!existingUser) {
-      // Automatically create a new user account for Google sign in
-      const signupRes = await this.signup({
-        email: emailNorm,
-        password: `google_oauth_${Date.now()}_${Math.random()}`,
-        displayName: params.displayName || emailNorm.split('@')[0],
-        role: (emailNorm.includes('admin') || emailNorm === 'admin@jjbetting.com') ? 'admin' : 'customer'
-      });
-      return signupRes;
-    }
-
-    const token = this.generateToken(existingUser);
-    const wallet = this.getWallet(existingUser.id);
-    return { user: existingUser, token, wallet };
+    const uid = params.googleId || `goog_${Date.now()}`;
+    return this.syncFirebaseUser({
+      uid,
+      email: emailNorm,
+      displayName: params.displayName
+    });
   }
 
   public getUserById(id: string): User | null {

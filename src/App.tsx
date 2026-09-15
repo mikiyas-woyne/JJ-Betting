@@ -7,7 +7,8 @@ import {
   Award,
   AlertCircle,
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  Loader2
 } from 'lucide-react';
 import { Match, Sport, BetSlipItem, Wallet, Bet, Notification, User } from './types';
 import { api } from './services/api';
@@ -24,7 +25,12 @@ import { ResponsibleGamblingModal } from './components/ResponsibleGamblingModal'
 import { NotificationsModal } from './components/NotificationsModal';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AuthModal } from './components/AuthModal';
-import { checkGoogleRedirectResult, logoutFirebase } from './lib/firebase';
+import {
+  checkGoogleRedirectResult,
+  logoutFirebase,
+  subscribeToAuthChanges,
+  getOrCreateFirestoreUser
+} from './lib/firebase';
 
 export default function App() {
   const [activeView, setActiveView] = useState<'sportsbook' | 'admin'>('sportsbook');
@@ -48,6 +54,7 @@ export default function App() {
   const [userBets, setUserBets] = useState<Bet[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(true);
 
   // Bet Slip Items
   const [betSlipItems, setBetSlipItems] = useState<BetSlipItem[]>([]);
@@ -57,7 +64,7 @@ export default function App() {
   const [secondsAgo, setSecondsAgo] = useState<number>(0);
   const [isRetrying, setIsRetrying] = useState<boolean>(false);
 
-  // Initial Data Fetch
+  // Initial Data Fetch & Background Polling
   const fetchAllData = async (isInitialBoot: boolean = false) => {
     try {
       const results = await Promise.allSettled([
@@ -86,34 +93,9 @@ export default function App() {
       }
 
       if (results[2].status === 'fulfilled' && results[2].value?.user) {
-        console.log('[App Auth Callback DEBUG] Active JWT session restored successfully:', results[2].value.user.email);
+        console.log('[App Auth] Active JWT session restored:', results[2].value.user.email);
         setUser(results[2].value.user);
         setWallet(results[2].value.wallet);
-      } else if (isInitialBoot) {
-        console.log('[App Auth Callback DEBUG] Initial boot check: Inspecting Firebase Google OAuth redirect result...');
-        const redirectUser = await checkGoogleRedirectResult();
-        console.log('[App Auth Callback DEBUG] checkGoogleRedirectResult output:', redirectUser);
-
-        if (redirectUser && redirectUser.email) {
-          console.log('[App Auth Callback DEBUG] Valid Google redirect user detected:', redirectUser.email, 'Exchanging for backend session...');
-          try {
-            const authRes = await api.googleLogin({
-              email: redirectUser.email,
-              displayName: redirectUser.displayName,
-              googleId: redirectUser.uid
-            });
-            console.log('[App Auth Callback DEBUG] Backend session exchange successful:', authRes.user.email);
-            setUser(authRes.user);
-            setWallet(authRes.wallet);
-            setIsAuthOpen(false);
-          } catch (gErr: any) {
-            console.error('[App Auth Callback DEBUG] Failed to exchange Google redirect token:', gErr?.message || gErr);
-            setIsAuthOpen(true);
-          }
-        } else {
-          console.log('[App Auth Callback DEBUG] No redirect user detected on boot. Prompting Auth modal.');
-          setIsAuthOpen(true);
-        }
       }
 
       if (results[3].status === 'fulfilled') setUserBets(results[3].value);
@@ -145,8 +127,9 @@ export default function App() {
     setUser(null);
     setWallet(null);
     setUserBets([]);
+    setTransactions([]);
     setActiveView('sportsbook');
-    setIsAuthOpen(true);
+    setIsAuthOpen(false);
   };
 
   const fetchMatchesDataSilently = async () => {
@@ -180,13 +163,114 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchAllData(true);
+    let isMounted = true;
+
+    // 1. Initial sports & matches fetch
+    fetchAllData(false);
+
+    // 2. Inspect Google Redirect auth on boot
+    checkGoogleRedirectResult()
+      .then(async (redirectUser) => {
+        if (redirectUser && redirectUser.email && isMounted) {
+          try {
+            const profile = await getOrCreateFirestoreUser(redirectUser);
+            const authRes = await api.syncFirebaseSession({
+              uid: redirectUser.uid,
+              email: redirectUser.email,
+              displayName: profile.displayName || redirectUser.displayName
+            });
+            if (isMounted) {
+              setUser(authRes.user);
+              setWallet(authRes.wallet);
+              setIsAuthOpen(false);
+              Promise.allSettled([api.getMyBets(), api.getNotifications(), api.getTransactions()]).then((res) => {
+                if (isMounted) {
+                  if (res[0].status === 'fulfilled') setUserBets(res[0].value);
+                  if (res[1].status === 'fulfilled') setNotifications(res[1].value);
+                  if (res[2].status === 'fulfilled') setTransactions(res[2].value);
+                }
+              });
+            }
+          } catch (gErr: any) {
+            console.error('[App] Failed to sync Google redirect session:', gErr);
+          }
+        }
+      })
+      .catch((err) => console.warn('[App] Google redirect check notice:', err));
+
+    // 3. Listen to Firebase Auth state for automatic session persistence
+    const unsubscribe = subscribeToAuthChanges(async (fbUser) => {
+      if (!isMounted) return;
+
+      if (fbUser && fbUser.email) {
+        try {
+          const profile = await getOrCreateFirestoreUser(fbUser);
+          const session = await api.syncFirebaseSession({
+            uid: fbUser.uid,
+            email: fbUser.email,
+            displayName: profile.displayName || fbUser.displayName || fbUser.email.split('@')[0]
+          });
+          if (isMounted) {
+            setUser(session.user);
+            setWallet(session.wallet);
+            setIsAuthOpen(false);
+            Promise.allSettled([api.getMyBets(), api.getNotifications(), api.getTransactions()]).then((res) => {
+              if (isMounted) {
+                if (res[0].status === 'fulfilled') setUserBets(res[0].value);
+                if (res[1].status === 'fulfilled') setNotifications(res[1].value);
+                if (res[2].status === 'fulfilled') setTransactions(res[2].value);
+              }
+            });
+          }
+        } catch (syncErr) {
+          console.warn('[App] Firebase session sync notice:', syncErr);
+          // Fallback to active backend JWT if valid
+          try {
+            const me = await api.getMe();
+            if (me?.user && isMounted) {
+              setUser(me.user);
+              setWallet(me.wallet);
+            }
+          } catch {}
+        }
+      } else {
+        // No Firebase user - check if local JWT session is active
+        try {
+          const me = await api.getMe();
+          if (me?.user && isMounted) {
+            setUser(me.user);
+            setWallet(me.wallet);
+          } else if (isMounted) {
+            setUser(null);
+            setWallet(null);
+            setUserBets([]);
+          }
+        } catch {
+          if (isMounted) {
+            setUser(null);
+            setWallet(null);
+            setUserBets([]);
+          }
+        }
+      }
+
+      if (isMounted) {
+        setIsCheckingAuth(false);
+      }
+    });
+
+    // 4. Background polling for live matches
     const interval = setInterval(() => {
       if (typeof document === 'undefined' || document.visibilityState === 'visible') {
         fetchMatchesDataSilently();
       }
     }, 15000);
-    return () => clearInterval(interval);
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -228,6 +312,10 @@ export default function App() {
 
   // Place Bet Handler (Invokes server validation!)
   const handlePlaceBet = async (type: 'single' | 'multiple', stake: number, items: BetSlipItem[]): Promise<Bet> => {
+    if (!user) {
+      setIsAuthOpen(true);
+      throw new Error('Please sign in or register to place your bet.');
+    }
     const payload = items.map(i => ({
       matchId: i.matchId,
       marketId: i.marketId,
@@ -243,6 +331,10 @@ export default function App() {
 
   // Deposit Handler
   const handleDeposit = async (amount: number, providerId: string, account: string) => {
+    if (!user) {
+      setIsAuthOpen(true);
+      return;
+    }
     const res = await api.depositFunds(amount, providerId, undefined, account);
     setWallet(res.wallet);
     setTransactions(prev => [res.transaction, ...prev]);
@@ -250,6 +342,10 @@ export default function App() {
 
   // Withdraw Handler
   const handleWithdraw = async (amount: number, providerId: string, destAccount: string, holderName: string) => {
+    if (!user) {
+      setIsAuthOpen(true);
+      return;
+    }
     const res = await api.withdrawFunds(amount, providerId, destAccount, holderName);
     setWallet(res.wallet);
     setTransactions(prev => [res.transaction, ...prev]);
@@ -257,6 +353,10 @@ export default function App() {
 
   // Update Limits Handler
   const handleUpdateLimits = async (limitsData: any) => {
+    if (!user) {
+      setIsAuthOpen(true);
+      return;
+    }
     const res = await api.updateResponsibleLimits(limitsData);
     setUser(res.user);
   };
@@ -286,6 +386,26 @@ export default function App() {
 
   const isAdmin = Boolean(user && user.role === 'admin');
 
+  // Loading Screen while Firebase is checking authentication
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4">
+        <div className="flex flex-col items-center space-y-4 max-w-sm text-center">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-black text-xl shadow-lg shadow-emerald-950/50 animate-pulse">
+            JJ
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-base font-bold text-white tracking-tight">Apex Sportsbook</h2>
+            <p className="text-xs text-slate-400 flex items-center justify-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+              <span>Checking your account...</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (activeView === 'admin' && isAdmin) {
     return (
       <AdminDashboard
@@ -308,10 +428,22 @@ export default function App() {
           if (v === 'admin' && !isAdmin) return;
           setActiveView(v);
         }}
-        onOpenWallet={() => setIsWalletOpen(true)}
-        onOpenBets={() => setIsBetsOpen(true)}
-        onOpenLimits={() => setIsLimitsOpen(true)}
-        onOpenNotifications={() => setIsNotificationsOpen(true)}
+        onOpenWallet={() => {
+          if (!user) setIsAuthOpen(true);
+          else setIsWalletOpen(true);
+        }}
+        onOpenBets={() => {
+          if (!user) setIsAuthOpen(true);
+          else setIsBetsOpen(true);
+        }}
+        onOpenLimits={() => {
+          if (!user) setIsAuthOpen(true);
+          else setIsLimitsOpen(true);
+        }}
+        onOpenNotifications={() => {
+          if (!user) setIsAuthOpen(true);
+          else setIsNotificationsOpen(true);
+        }}
         onOpenAuth={() => setIsAuthOpen(true)}
         onLogout={handleLogout}
       />
