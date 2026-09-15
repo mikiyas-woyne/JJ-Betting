@@ -508,32 +508,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </button>
           </form>
 
-          {/* Quick Demo Accounts Helper */}
-          <div className="pt-3 border-t border-slate-800 space-y-2">
-            <div className="text-[11px] font-semibold text-slate-400 text-center uppercase tracking-wider">
-              Quick Test Credentials
+          {/* Quick Demo Accounts Helper (Development only) */}
+          {import.meta.env.DEV && (
+            <div className="pt-3 border-t border-slate-800 space-y-2">
+              <div className="text-[11px] font-semibold text-slate-400 text-center uppercase tracking-wider">
+                Development Test Credentials
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => handleQuickFill('customer')}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 disabled:opacity-50 border border-slate-700/70 text-[11px] text-slate-300 font-medium cursor-pointer transition-colors text-left"
+                >
+                  <div className="font-bold text-emerald-400">Player Account</div>
+                  <div className="text-[10px] text-slate-400 truncate">player@jjbetting.com</div>
+                </button>
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => handleQuickFill('admin')}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 disabled:opacity-50 border border-slate-700/70 text-[11px] text-slate-300 font-medium cursor-pointer transition-colors text-left"
+                >
+                  <div className="font-bold text-amber-400">Admin Account</div>
+                  <div className="text-[10px] text-slate-400 truncate">admin@jjbetting.com</div>
+                </button>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={() => handleQuickFill('customer')}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 disabled:opacity-50 border border-slate-700/70 text-[11px] text-slate-300 font-medium cursor-pointer transition-colors text-left"
-              >
-                <div className="font-bold text-emerald-400">Demo Player</div>
-                <div className="text-[10px] text-slate-400 truncate">mikiyaswoyne@gmail.com</div>
-              </button>
-              <button
-                type="button"
-                disabled={isLoading}
-                onClick={() => handleQuickFill('admin')}
-                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-750 disabled:opacity-50 border border-slate-700/70 text-[11px] text-slate-300 font-medium cursor-pointer transition-colors text-left"
-              >
-                <div className="font-bold text-amber-400">Demo Admin</div>
-                <div className="text-[10px] text-slate-400 truncate">admin@jjbetting.com</div>
-              </button>
-            </div>
-          </div>
+          )}
 
           {/* Collapsible Authentication Diagnostics Section */}
           <div className="pt-2 border-t border-slate-800/80">

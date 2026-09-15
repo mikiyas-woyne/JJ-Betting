@@ -123,27 +123,7 @@ export class SettlementService {
   private settledBetIds = new Set<string>();
 
   constructor() {
-    this.seedBaselineSettlement();
-  }
-
-  private seedBaselineSettlement() {
-    // Seed an initial historical settlement record for demonstration
-    const demoSettlement: SettlementRecord = {
-      settlementId: 'stl_hist_01',
-      betId: 'bet-rec-01',
-      userId: 'usr_licensed_01',
-      matchId: 'm-settled-01',
-      result: 'WON',
-      stake: 500,
-      payout: 950,
-      settledAt: new Date(Date.now() - 20 * 3600 * 1000).toISOString(),
-      processedBy: 'auto:sports-provider',
-      source: 'the-odds-api',
-      status: 'COMPLETED',
-      reason: 'Official match result certified (Arsenal 3 - 1 Chelsea)'
-    };
-    this.settlements.set(demoSettlement.settlementId, demoSettlement);
-    this.settledBetIds.add('bet-rec-01');
+    // Empty initial settlements map; only real settlement events are recorded
   }
 
   /**

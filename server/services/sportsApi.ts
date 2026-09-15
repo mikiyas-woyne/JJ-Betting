@@ -692,44 +692,39 @@ export class SportsApiService {
         footballMatches = await this.provider.fetchUpcomingMatches('soccer_epl');
       }
 
-      // 3. Fetch Multi-Sport Competitions (NBA Basketball, NFL Football, MLB Baseball, NHL Ice Hockey)
-      let multiSportMatches: NormalizedMatch[] = [];
-      if (typeof this.provider.fetchMultiSportMatches === 'function') {
-        multiSportMatches = await this.provider.fetchMultiSportMatches();
-      }
-
-      // 4. Fetch Live Matches & Scores
+      // 3. Fetch Live Football Matches & Scores
       let liveMatches: NormalizedMatch[] = [];
       try {
         const liveEpl = await this.provider.fetchLiveMatches('soccer_epl');
-        const liveBunde2 = await this.provider.fetchLiveMatches('soccer_germany_bundesliga2');
-        liveMatches = [...liveEpl, ...liveBunde2];
+        const liveBunde = await this.provider.fetchLiveMatches('soccer_germany_bundesliga');
+        liveMatches = [...liveEpl, ...liveBunde];
       } catch (liveErr: any) {
         console.warn('[SportsApi] Live scores fetch warning:', liveErr.message);
       }
 
-      // 5. Merge all fixtures
+      // 4. Merge all football fixtures
       const allEventsMap = new Map<string, NormalizedMatch>();
 
       for (const m of footballMatches) {
-        allEventsMap.set(m.id, m);
-      }
-      for (const m of multiSportMatches) {
-        allEventsMap.set(m.id, m);
+        if (m.sportId === 'football') {
+          allEventsMap.set(m.id, m);
+        }
       }
       // Overwrite with live match states where available
       for (const m of liveMatches) {
-        allEventsMap.set(m.id, m);
+        if (m.sportId === 'football') {
+          allEventsMap.set(m.id, m);
+        }
       }
 
       let allEvents = Array.from(allEventsMap.values());
       if (allEvents.length === 0) {
         try {
           const espnFallback = new EspnSportsProvider();
-          const fallbackEvents = await espnFallback.fetchUpcomingMatches();
+          const fallbackEvents = await espnFallback.fetchPrioritizedFootballMatches();
           if (fallbackEvents && fallbackEvents.length > 0) {
-            allEvents = fallbackEvents;
-            console.log(`[SportsApi] Successfully recovered ${fallbackEvents.length} live matches from ESPN Official Live Feed.`);
+            allEvents = fallbackEvents.filter(m => m.sportId === 'football');
+            console.log(`[SportsApi] Successfully recovered ${fallbackEvents.length} football matches from ESPN Official Live Feed.`);
           }
         } catch (espnErr: any) {
           console.warn('[SportsApi] Notice querying ESPN live fallback:', espnErr.message);
@@ -739,8 +734,8 @@ export class SportsApiService {
       if (allEvents.length === 0) {
         // Only if network is completely severed do we use initial baseline
         if (INITIAL_MATCHES && INITIAL_MATCHES.length > 0) {
-          allEvents = [...(INITIAL_MATCHES as any)];
-          console.warn('[SportsApi] Offline mode: using baseline catalog.');
+          allEvents = INITIAL_MATCHES.filter(m => m.sportId === 'football') as any;
+          console.warn('[SportsApi] Offline mode: using baseline football catalog.');
         }
       }
 
@@ -805,14 +800,13 @@ export class SportsApiService {
   }
 
   /**
-   * Lightweight sync for live matches only and dynamic in-play simulation
+   * Lightweight sync for live football matches only from real configured sports provider
    */
   public async syncLiveScores(): Promise<void> {
     if (this.isSyncing) return;
 
     const now = Date.now();
     if (now - this.lastLiveSyncTime < this.liveSyncIntervalMs) {
-      this.tickLiveSimulation();
       return;
     }
 
@@ -820,6 +814,7 @@ export class SportsApiService {
       try {
         const liveMatches = await this.provider.fetchLiveMatches('soccer_epl');
         for (const liveMatch of liveMatches) {
+          if (liveMatch.sportId !== 'football') continue;
           const existing = this.matchesMap.get(liveMatch.id);
           if (existing) {
             existing.status = 'live';
@@ -838,63 +833,9 @@ export class SportsApiService {
         }
         this.lastLiveSyncTime = now;
         this.refreshStats();
-      } catch (err) {
-        console.warn('[SportsApi] Live scores poll failed:', err);
+      } catch (err: any) {
+        console.warn('[SportsApi] Real live scores poll notice:', err?.message || err);
       }
-    }
-
-    // Always run the in-play real-time engine to ensure clocks and scores update dynamically
-    this.tickLiveSimulation();
-  }
-
-  /**
-   * Real-time in-play ticker: advances match minutes, updates live scorecards, and oscillates odds
-   */
-  public tickLiveSimulation(): void {
-    let hasChanges = false;
-    const nowIso = new Date().toISOString();
-
-    for (const match of this.matchesMap.values()) {
-      if (match.status === 'live' && match.score) {
-        hasChanges = true;
-        const currentMinute = match.score.minute || 1;
-        // Advance clock
-        const newMinute = Math.min(90, currentMinute + 1);
-        match.score.minute = newMinute;
-        if (newMinute > 45 && match.score.period === '1st Half') {
-          match.score.period = '2nd Half';
-        }
-
-        // Dynamic score progression
-        if (Math.random() < 0.05) {
-          if (Math.random() > 0.5) {
-            match.score.home = (match.score.home || 0) + 1;
-          } else {
-            match.score.away = (match.score.away || 0) + 1;
-          }
-        }
-
-        // Real-time odds fluctuations (±0.01 - 0.04)
-        if (match.markets && match.markets.length > 0) {
-          for (const market of match.markets) {
-            if (market.status === 'active' && market.selections) {
-              for (const sel of market.selections) {
-                if (sel.status === 'active' && Math.random() < 0.25) {
-                  const delta = (Math.random() * 0.06 - 0.03);
-                  sel.oddsValue = Math.max(1.05, Math.min(25.0, Math.round((sel.oddsValue + delta) * 100) / 100));
-                }
-              }
-            }
-          }
-          oddsService.registerMarkets(match.id, match.markets);
-        }
-
-        match.updatedAt = nowIso;
-      }
-    }
-
-    if (hasChanges) {
-      this.refreshStats();
     }
   }
 

@@ -27,10 +27,7 @@ const SUPPORTED_COMPETITIONS: EspnCompConfig[] = [
   { key: 'ger.1', name: 'Bundesliga', sport: 'soccer', sportId: 'football', slug: 'soccer_germany_bundesliga' },
   { key: 'fra.1', name: 'Ligue 1', sport: 'soccer', sportId: 'football', slug: 'soccer_france_ligue_one' },
   { key: 'uefa.champions', name: 'UEFA Champions League', sport: 'soccer', sportId: 'football', slug: 'soccer_uefa_champs_league' },
-  { key: 'mlb', name: 'MLB Baseball', sport: 'baseball', sportId: 'baseball', slug: 'baseball_mlb' },
-  { key: 'nfl', name: 'NFL Football', sport: 'football', sportId: 'americanfootball', slug: 'americanfootball_nfl' },
-  { key: 'nba', name: 'NBA Basketball', sport: 'basketball', sportId: 'basketball', slug: 'basketball_nba' },
-  { key: 'nhl', name: 'NHL Ice Hockey', sport: 'hockey', sportId: 'icehockey', slug: 'icehockey_nhl' }
+  { key: 'uefa.europa', name: 'UEFA Europa League', sport: 'soccer', sportId: 'football', slug: 'soccer_uefa_europa_league' }
 ];
 
 const BASE_URL = 'https://site.api.espn.com/apis/site/v2/sports';

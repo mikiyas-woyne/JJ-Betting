@@ -39,19 +39,19 @@ class AuthService {
     this.wallets.set(customerId, {
       userId: customerId,
       currency: 'ETB',
-      availableBalance: 25000.00,
-      lockedBalance: 0,
-      totalDeposited: 25000.00,
-      totalWithdrawn: 0,
+      availableBalance: 0.00,
+      lockedBalance: 0.00,
+      totalDeposited: 0.00,
+      totalWithdrawn: 0.00,
       updatedAt: new Date().toISOString()
     });
 
-    // Seed Dedicated Demo Player Account
+    // Seed Dedicated Player Account
     const playerId = 'usr_player_01';
     const playerUser: UserWithHash = {
       id: playerId,
       email: 'player@jjbetting.com',
-      displayName: 'Demo Player',
+      displayName: 'Standard Player',
       role: 'customer',
       kycStatus: 'tier1_verified',
       dailyDepositLimit: 50000,
@@ -64,10 +64,10 @@ class AuthService {
     this.wallets.set(playerId, {
       userId: playerId,
       currency: 'ETB',
-      availableBalance: 1500.00,
-      lockedBalance: 0,
-      totalDeposited: 2000.00,
-      totalWithdrawn: 500.00,
+      availableBalance: 0.00,
+      lockedBalance: 0.00,
+      totalDeposited: 0.00,
+      totalWithdrawn: 0.00,
       updatedAt: new Date().toISOString()
     });
 
@@ -89,10 +89,10 @@ class AuthService {
     this.wallets.set(adminId, {
       userId: adminId,
       currency: 'ETB',
-      availableBalance: 100000.00,
-      lockedBalance: 0,
-      totalDeposited: 100000.00,
-      totalWithdrawn: 0,
+      availableBalance: 0.00,
+      lockedBalance: 0.00,
+      totalDeposited: 0.00,
+      totalWithdrawn: 0.00,
       updatedAt: new Date().toISOString()
     });
   }
@@ -185,10 +185,10 @@ class AuthService {
     const newWallet: Wallet = {
       userId,
       currency: 'ETB',
-      availableBalance: role === 'admin' ? 50000.00 : 1000.00, // Welcome signup bonus for testing
-      lockedBalance: 0,
-      totalDeposited: role === 'admin' ? 50000.00 : 1000.00,
-      totalWithdrawn: 0,
+      availableBalance: 0.00,
+      lockedBalance: 0.00,
+      totalDeposited: 0.00,
+      totalWithdrawn: 0.00,
       updatedAt: new Date().toISOString()
     };
 
@@ -257,10 +257,10 @@ class AuthService {
     const newWallet: Wallet = {
       userId: params.uid,
       currency: 'ETB',
-      availableBalance: defaultRole === 'admin' ? 50000.00 : 1000.00,
-      lockedBalance: 0,
-      totalDeposited: defaultRole === 'admin' ? 50000.00 : 1000.00,
-      totalWithdrawn: 0,
+      availableBalance: 0.00,
+      lockedBalance: 0.00,
+      totalDeposited: 0.00,
+      totalWithdrawn: 0.00,
       updatedAt: new Date().toISOString()
     };
 

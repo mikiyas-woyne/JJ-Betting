@@ -111,7 +111,7 @@ export const WalletModal: React.FC<WalletModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-black text-white">Customer Financial Ledger</h2>
-              <p className="text-xs text-slate-400">National Gaming License Compliant Wallet</p>
+              <p className="text-xs text-slate-400">{import.meta.env.VITE_WALLET_SUBTITLE || 'Secure Cashier & Ledger'}</p>
             </div>
           </div>
           <button

@@ -77,7 +77,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 JJ-<span className="text-emerald-400">BETTING</span>
               </div>
               <div className="text-[10px] tracking-widest text-slate-400 uppercase font-semibold">
-                Licensed Sportsbook
+                {import.meta.env.VITE_APP_SUBTITLE || 'Football Sportsbook'}
               </div>
             </div>
           </button>

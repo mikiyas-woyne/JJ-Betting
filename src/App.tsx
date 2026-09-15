@@ -514,10 +514,10 @@ export default function App() {
               <Clock className="w-4 h-4 text-emerald-400" />
               <h2 className="text-base sm:text-lg font-black text-white tracking-tight">
                 {timingFilter === 'live'
-                  ? 'Live Matches In Play'
+                  ? 'Live Football In Play'
                   : timingFilter === 'upcoming'
-                  ? 'Upcoming Fixtures'
-                  : 'All Sports Fixtures'}
+                  ? 'Upcoming Football Fixtures'
+                  : 'Football'}
               </h2>
             </div>
             <div className="flex items-center gap-3">

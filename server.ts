@@ -53,130 +53,18 @@ const currentUser: User = {
 const userWallet: Wallet = {
   userId: currentUser.id,
   currency: 'ETB',
-  availableBalance: 2450.00,
-  lockedBalance: 0,
-  totalDeposited: 5000.00,
-  totalWithdrawn: 1500.00,
+  availableBalance: 0.00,
+  lockedBalance: 0.00,
+  totalDeposited: 0.00,
+  totalWithdrawn: 0.00,
   updatedAt: new Date().toISOString()
 };
 
-let transactions: WalletTransaction[] = [
-  {
-    id: 'txn_init_01',
-    walletId: 'wlt_01',
-    userId: currentUser.id,
-    type: 'deposit',
-    amount: 5000.00,
-    fee: 0,
-    balanceBefore: 0,
-    balanceAfter: 5000.00,
-    status: 'completed',
-    referenceId: 'DEP-TLB-892341',
-    description: 'Licensed Mobile Money Deposit (Telebirr)',
-    paymentMethod: 'Telebirr SuperApp',
-    createdAt: new Date(Date.now() - 48 * 3600 * 1000).toISOString()
-  },
-  {
-    id: 'txn_init_02',
-    walletId: 'wlt_01',
-    userId: currentUser.id,
-    type: 'bet_placement',
-    amount: -500.00,
-    fee: 0,
-    balanceBefore: 5000.00,
-    balanceAfter: 4500.00,
-    status: 'completed',
-    referenceId: 'BET-SINGLE-44102',
-    description: 'Wager Placed: Single Bet on Arsenal to Win',
-    createdAt: new Date(Date.now() - 24 * 3600 * 1000).toISOString()
-  },
-  {
-    id: 'txn_init_03',
-    walletId: 'wlt_01',
-    userId: currentUser.id,
-    type: 'bet_payout',
-    amount: 950.00,
-    fee: 0,
-    balanceBefore: 4500.00,
-    balanceAfter: 5450.00,
-    status: 'completed',
-    referenceId: 'WIN-SINGLE-44102',
-    description: 'Settled Wager Payout: Arsenal vs Chelsea (Won)',
-    createdAt: new Date(Date.now() - 20 * 3600 * 1000).toISOString()
-  },
-  {
-    id: 'txn_init_04',
-    walletId: 'wlt_01',
-    userId: currentUser.id,
-    type: 'withdrawal',
-    amount: -1500.00,
-    fee: 7.50,
-    balanceBefore: 5450.00,
-    balanceAfter: 3942.50,
-    status: 'completed',
-    referenceId: 'WTH-CBE-782190',
-    description: 'Verified Bank Withdrawal (CBE Account)',
-    paymentMethod: 'Commercial Bank of Ethiopia',
-    createdAt: new Date(Date.now() - 10 * 3600 * 1000).toISOString()
-  }
-];
+let transactions: WalletTransaction[] = [];
 
-let bets: Bet[] = [
-  {
-    id: 'bet-rec-01',
-    userId: currentUser.id,
-    userEmail: currentUser.email,
-    betType: 'single',
-    type: 'single',
-    stake: 500.00,
-    acceptedOdds: 1.90,
-    totalOdds: 1.90,
-    potentialReturn: 950.00,
-    currency: 'ETB',
-    status: 'won',
-    placedAt: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-    createdAt: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-    updatedAt: new Date(Date.now() - 20 * 3600 * 1000).toISOString(),
-    settledAt: new Date(Date.now() - 20 * 3600 * 1000).toISOString(),
-    payoutAmount: 950.00,
-    selections: [
-      {
-        matchId: 'm-settled-01',
-        marketId: 'm-settled-01-mw',
-        selectionId: 'sel-ars',
-        matchName: 'Arsenal vs Chelsea',
-        marketName: 'Match Winner (1X2)',
-        selectionName: 'Arsenal',
-        acceptedOdds: 1.90,
-        oddsAtPlacement: 1.90,
-        oddsAtSelection: 1.90,
-        oddsLastChecked: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-        status: 'won'
-      }
-    ]
-  }
-];
+let bets: Bet[] = [];
 
-let notifications: Notification[] = [
-  {
-    id: 'notif-01',
-    userId: currentUser.id,
-    title: 'Bet Won!',
-    message: 'Your ticket #bet-rec-01 on Arsenal was settled as WON. 950.00 ETB credited to your wallet.',
-    type: 'bet_outcome',
-    read: false,
-    createdAt: new Date(Date.now() - 20 * 3600 * 1000).toISOString()
-  },
-  {
-    id: 'notif-02',
-    userId: currentUser.id,
-    title: 'Licensed Platform Welcome',
-    message: 'Welcome to Apex Sportsbook. Your account is Tier 1 Verified under national regulatory standards.',
-    type: 'security',
-    read: true,
-    createdAt: new Date(Date.now() - 48 * 3600 * 1000).toISOString()
-  }
-];
+let notifications: Notification[] = [];
 
 let auditLogs: AuditLog[] = [
   {
@@ -601,6 +489,11 @@ async function startServer() {
     const pendingBetsCount = bets.filter(b => b.status === 'pending').length;
     const liveMatchesCount = matches.filter(m => m.status === 'live').length;
     const depositSummary = depositService.getSummary();
+    const allUsers = authService.getAllUsers();
+    const totalLiquidity = allUsers.reduce((sum, u) => {
+      const w = authService.getWallet(u.id);
+      return sum + (w?.availableBalance || 0);
+    }, 0);
 
     res.json({
       totalHandle,
@@ -608,9 +501,9 @@ async function startServer() {
       ggr,
       pendingBetsCount,
       liveMatchesCount,
-      totalUsers: 1420,
+      totalUsers: allUsers.length,
       totalTransactions: transactions.length,
-      availableLiquidity: 1540000.00,
+      availableLiquidity: totalLiquidity,
       pendingDepositsCount: depositSummary.pendingDeposits,
       depositSummary
     });

@@ -31,8 +31,8 @@ export const SportsBar: React.FC<SportsBarProps> = ({
                 : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/60'
             }`}
           >
-            <span>🔥</span>
-            <span>All Sports</span>
+            <span>⚽</span>
+            <span>Football</span>
           </button>
 
           {sports.map(sport => {

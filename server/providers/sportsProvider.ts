@@ -608,88 +608,15 @@ export class TheOddsApiProvider implements ISportsProvider {
 
       if (!Array.isArray(rawSports)) return [];
 
-      // Deduplicate into canonical top-level sports with clean icons and rankings
-      const sportsMap = new Map<string, NormalizedSport>();
-
-      for (const item of rawSports) {
-        const group = (item.group || '').toLowerCase();
-        const key = (item.key || '').toLowerCase();
-
-        let sportId = 'football';
-        let name = 'Football';
-        let icon = '⚽';
-        let priority = 1;
-
-        if (group.includes('soccer') || key.includes('soccer')) {
-          sportId = 'football';
-          name = 'Football';
-          icon = '⚽';
-          priority = 1;
-        } else if (group.includes('basketball') || key.includes('basketball')) {
-          sportId = 'basketball';
-          name = 'Basketball';
-          icon = '🏀';
-          priority = 2;
-        } else if (group.includes('tennis') || key.includes('tennis')) {
-          sportId = 'tennis';
-          name = 'Tennis';
-          icon = '🎾';
-          priority = 3;
-        } else if (group.includes('american football') || key.includes('americanfootball')) {
-          sportId = 'americanfootball';
-          name = 'American Football';
-          icon = '🏈';
-          priority = 4;
-        } else if (group.includes('baseball') || key.includes('baseball')) {
-          sportId = 'baseball';
-          name = 'Baseball';
-          icon = '⚾';
-          priority = 5;
-        } else if (group.includes('ice hockey') || key.includes('icehockey')) {
-          sportId = 'icehockey';
-          name = 'Ice Hockey';
-          icon = '🏒';
-          priority = 6;
-        } else if (group.includes('mma') || group.includes('boxing') || key.includes('mma') || key.includes('boxing')) {
-          sportId = 'boxing';
-          name = 'Boxing & MMA';
-          icon = '🥊';
-          priority = 7;
-        } else if (group.includes('cricket') || key.includes('cricket')) {
-          sportId = 'cricket';
-          name = 'Cricket';
-          icon = '🏏';
-          priority = 8;
-        } else if (group.includes('rugby') || group.includes('aussie') || key.includes('rugby') || key.includes('aussierules')) {
-          sportId = 'rugby';
-          name = 'Rugby & AFL';
-          icon = '🏉';
-          priority = 9;
-        } else if (group.includes('golf') || key.includes('golf')) {
-          sportId = 'golf';
-          name = 'Golf';
-          icon = '⛳';
-          priority = 10;
-        }
-
-        if (!sportsMap.has(sportId)) {
-          sportsMap.set(sportId, {
-            id: sportId,
-            name,
-            slug: sportId,
-            icon,
-            priority
-          });
-        }
-      }
-
-      const result = Array.from(sportsMap.values()).sort((a, b) => a.priority - b.priority);
-      // Cache sports list for 1 hour
+      // Football-only sports catalog
+      const result: NormalizedSport[] = [
+        { id: 'football', name: 'Football', slug: 'football', icon: '⚽', priority: 1 }
+      ];
       this.setCache(cacheKey, result, 3600);
       return result;
     } catch (err: any) {
       console.warn('[TheOddsApiProvider] fetchSports notice:', err.message);
-      return [];
+      return [{ id: 'football', name: 'Football', slug: 'football', icon: '⚽', priority: 1 }];
     }
   }
 
@@ -837,32 +764,7 @@ export class TheOddsApiProvider implements ISportsProvider {
    * Connects major world leagues including NBA Basketball, NFL Football, MLB Baseball, and NHL Ice Hockey.
    */
   async fetchMultiSportMatches(): Promise<NormalizedMatch[]> {
-    if (this.quotaExhausted) {
-      return this.espnFallback.fetchMultiSportMatches();
-    }
-    if (!this.isConfigured()) return [];
-
-    const multiSports = [
-      'basketball_nba',
-      'americanfootball_nfl',
-      'baseball_mlb',
-      'icehockey_nhl'
-    ];
-
-    const allMatches: NormalizedMatch[] = [];
-    for (const sportKey of multiSports) {
-      if (this.authError && !this.quotaExhausted) break;
-      try {
-        const matches = await this.fetchUpcomingMatches(sportKey);
-        if (matches && matches.length > 0) {
-          allMatches.push(...matches);
-        }
-      } catch (err: any) {
-        console.warn(`[TheOddsApiProvider] Notice syncing multi-sport ${sportKey}:`, err.message);
-      }
-    }
-
-    return allMatches;
+    return [];
   }
 
   async fetchLiveMatches(sportSlug: string = 'soccer_epl'): Promise<NormalizedMatch[]> {

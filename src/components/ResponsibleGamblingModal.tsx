@@ -73,9 +73,9 @@ export const ResponsibleGamblingModal: React.FC<ResponsibleGamblingModalProps> =
           )}
 
           <div className="bg-slate-950/60 p-3.5 rounded-2xl border border-slate-800/80 text-slate-400 space-y-1">
-            <div className="font-bold text-slate-200">Regulatory Advisory</div>
+            <div className="font-bold text-slate-200">Responsible Gaming Policy</div>
             <p className="leading-relaxed">
-              Sports betting should be an entertaining pastime. As a licensed operator, we enforce strict client-set financial ceilings and timeout provisions.
+              Sports betting should be an entertaining pastime. We provide player-controlled financial ceilings and timeout provisions.
             </p>
           </div>
 

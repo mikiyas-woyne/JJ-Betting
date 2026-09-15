@@ -41,44 +41,7 @@ export class DepositService {
   private lock = new DepositAsyncLock();
 
   constructor() {
-    this.seedInitialDeposits();
-  }
-
-  private seedInitialDeposits() {
-    this.deposits = [
-      {
-        depositId: 'DEP-20260912-8812',
-        userId: 'usr_licensed_01',
-        username: 'Mikiyas W.',
-        paymentMethod: 'telebirr',
-        paymentMethodName: 'Telebirr',
-        amount: 500,
-        currency: 'ETB',
-        screenshotUrl: 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&q=80&w=800',
-        note: 'Sent from 0938014055 at 11:20 AM',
-        status: 'PENDING',
-        createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-        reviewedAt: null,
-        reviewedBy: null,
-        adminNote: null
-      },
-      {
-        depositId: 'DEP-20260911-5421',
-        userId: 'usr_licensed_01',
-        username: 'Mikiyas W.',
-        paymentMethod: 'bank_of_abyssinia',
-        paymentMethodName: 'Bank of Abyssinia',
-        amount: 2500,
-        currency: 'ETB',
-        screenshotUrl: 'https://images.unsplash.com/photo-1554224154-26032ffc0d07?auto=format&fit=crop&q=80&w=800',
-        note: 'BoA mobile banking transfer ref #FT262559012',
-        status: 'APPROVED',
-        createdAt: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-        reviewedAt: new Date(Date.now() - 23 * 3600 * 1000).toISOString(),
-        reviewedBy: 'mikiyaswoyne@gmail.com',
-        adminNote: 'Verified against bank settlement statement'
-      }
-    ];
+    this.deposits = [];
   }
 
   /**

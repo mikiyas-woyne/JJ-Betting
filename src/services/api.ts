@@ -913,6 +913,7 @@ export const api = {
 
     // 2. Call server route
     let serverRes: any = null;
+    let serverError: string | null = null;
     try {
       const res = await fetch(`/api/admin/deposits/${depositId}/approve`, {
         method: 'POST',
@@ -921,9 +922,12 @@ export const api = {
       });
       if (res.ok) {
         serverRes = await res.json();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        serverError = errData.error || `Server returned error ${res.status}`;
       }
-    } catch {
-      // ignore
+    } catch (err: any) {
+      serverError = err.message || 'Network request failed';
     }
 
     // 3. Atomically approve in Firestore using runTransaction
@@ -937,7 +941,7 @@ export const api = {
       }
     }
 
-    // 4. Update localStorage
+    // 4. Update localStorage cache if present
     try {
       const stored = localStorage.getItem('apex_local_deposits');
       if (stored) {
@@ -967,55 +971,7 @@ export const api = {
 
     if (serverRes) return serverRes;
 
-    const approvedDeposit: DepositRecord = target
-      ? { ...target, status: 'APPROVED', reviewedAt: new Date().toISOString(), reviewedBy: adminEmail, adminNote: adminNote || 'Approved by administrator after verification' }
-      : {
-          depositId,
-          userId: 'usr_licensed_01',
-          username: 'Player',
-          paymentMethod: 'telebirr',
-          amount: 500,
-          currency: 'ETB',
-          screenshotUrl: '',
-          status: 'APPROVED',
-          createdAt: new Date().toISOString(),
-          reviewedAt: new Date().toISOString(),
-          reviewedBy: adminEmail,
-          adminNote: adminNote || 'Approved by administrator after verification'
-        };
-
-    const mockWallet: Wallet = {
-      userId: approvedDeposit.userId,
-      availableBalance: 1500,
-      currency: 'ETB',
-      lockedBalance: 0,
-      totalDeposited: approvedDeposit.amount,
-      totalWithdrawn: 0,
-      updatedAt: new Date().toISOString()
-    };
-
-    const mockTxn: WalletTransaction = {
-      id: `txn-${Date.now()}`,
-      walletId: `wlt-${approvedDeposit.userId}`,
-      userId: approvedDeposit.userId,
-      type: 'deposit',
-      amount: approvedDeposit.amount,
-      fee: 0,
-      balanceBefore: 1000,
-      balanceAfter: 1500,
-      status: 'completed',
-      referenceId: depositId,
-      description: `Manual Deposit Approved (${approvedDeposit.paymentMethod})`,
-      createdAt: new Date().toISOString()
-    };
-
-    return {
-      success: true,
-      deposit: approvedDeposit,
-      wallet: mockWallet,
-      transaction: mockTxn,
-      message: 'Deposit verified and approved successfully. Wallet balance credited.'
-    };
+    throw new Error(serverError || 'Failed to approve deposit. Ledger verification was not completed.');
   },
 
   async rejectDeposit(depositId: string, reason?: string): Promise<{
@@ -1030,6 +986,7 @@ export const api = {
     const target = all.find(d => d.depositId === depositId);
 
     let serverRes: any = null;
+    let serverError: string | null = null;
     try {
       const res = await fetch(`/api/admin/deposits/${depositId}/reject`, {
         method: 'POST',
@@ -1038,9 +995,12 @@ export const api = {
       });
       if (res.ok) {
         serverRes = await res.json();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        serverError = errData.error || `Server returned error ${res.status}`;
       }
-    } catch {
-      // ignore
+    } catch (err: any) {
+      serverError = err.message || 'Network request failed';
     }
 
     let firestoreRejected: DepositRecord | null = null;
@@ -1082,28 +1042,6 @@ export const api = {
 
     if (serverRes) return serverRes;
 
-    const rejectedDeposit: DepositRecord = target
-      ? { ...target, status: 'REJECTED', reviewedAt: new Date().toISOString(), reviewedBy: adminEmail, adminNote: reason || null, rejectionReason: reason || null }
-      : {
-          depositId,
-          userId: 'usr_licensed_01',
-          username: 'Player',
-          paymentMethod: 'telebirr',
-          amount: 500,
-          currency: 'ETB',
-          screenshotUrl: '',
-          status: 'REJECTED',
-          createdAt: new Date().toISOString(),
-          reviewedAt: new Date().toISOString(),
-          reviewedBy: adminEmail,
-          adminNote: reason || null,
-          rejectionReason: reason || null
-        };
-
-    return {
-      success: true,
-      deposit: rejectedDeposit,
-      message: 'Deposit marked as REJECTED.'
-    };
+    throw new Error(serverError || 'Failed to reject deposit. Ledger action could not be verified.');
   }
 };

@@ -36,10 +36,7 @@ export class EspnSportsProvider implements ISportsProvider {
     { key: 'ger.1', name: 'Bundesliga', sport: 'soccer', sportId: 'football', slug: 'soccer_germany_bundesliga' },
     { key: 'fra.1', name: 'Ligue 1', sport: 'soccer', sportId: 'football', slug: 'soccer_france_ligue_one' },
     { key: 'uefa.champions', name: 'UEFA Champions League', sport: 'soccer', sportId: 'football', slug: 'soccer_uefa_champs_league' },
-    { key: 'nfl', name: 'NFL Football', sport: 'football', sportId: 'americanfootball', slug: 'americanfootball_nfl' },
-    { key: 'nba', name: 'NBA Basketball', sport: 'basketball', sportId: 'basketball', slug: 'basketball_nba' },
-    { key: 'mlb', name: 'MLB Baseball', sport: 'baseball', sportId: 'baseball', slug: 'baseball_mlb' },
-    { key: 'nhl', name: 'NHL Ice Hockey', sport: 'hockey', sportId: 'icehockey', slug: 'icehockey_nhl' }
+    { key: 'uefa.europa', name: 'UEFA Europa League', sport: 'soccer', sportId: 'football', slug: 'soccer_uefa_europa_league' }
   ];
 
   isConfigured(): boolean {
@@ -113,11 +110,7 @@ export class EspnSportsProvider implements ISportsProvider {
 
   async fetchSports(): Promise<NormalizedSport[]> {
     return [
-      { id: 'football', name: 'Football', slug: 'football', icon: '⚽', priority: 1 },
-      { id: 'americanfootball', name: 'American Football', slug: 'americanfootball', icon: '🏈', priority: 2 },
-      { id: 'baseball', name: 'Baseball', slug: 'baseball', icon: '⚾', priority: 3 },
-      { id: 'icehockey', name: 'Ice Hockey', slug: 'icehockey', icon: '🏒', priority: 4 },
-      { id: 'basketball', name: 'Basketball', slug: 'basketball', icon: '🏀', priority: 5 }
+      { id: 'football', name: 'Football', slug: 'football', icon: '⚽', priority: 1 }
     ];
   }
 
@@ -195,27 +188,12 @@ export class EspnSportsProvider implements ISportsProvider {
   }
 
   async fetchMultiSportMatches(): Promise<NormalizedMatch[]> {
-    const multiComps = this.supportedCompetitions.filter(c => c.sport !== 'soccer');
-    const results = await Promise.allSettled(
-      multiComps.map(comp => this.fetchCompetitionMatches(comp))
-    );
-
-    const allMatches: NormalizedMatch[] = [];
-    for (const r of results) {
-      if (r.status === 'fulfilled') {
-        allMatches.push(...r.value);
-      }
-    }
-    return allMatches;
+    return [];
   }
 
   async fetchUpcomingMatches(sportSlug?: string): Promise<NormalizedMatch[]> {
-    if (!sportSlug || sportSlug === 'all') {
-      const [football, multi] = await Promise.all([
-        this.fetchPrioritizedFootballMatches(),
-        this.fetchMultiSportMatches()
-      ]);
-      return [...football, ...multi];
+    if (!sportSlug || sportSlug === 'all' || sportSlug === 'football') {
+      return this.fetchPrioritizedFootballMatches();
     }
 
     const matchedComp = this.supportedCompetitions.find(
@@ -224,10 +202,6 @@ export class EspnSportsProvider implements ISportsProvider {
 
     if (matchedComp) {
       return this.fetchCompetitionMatches(matchedComp);
-    }
-
-    if (sportSlug === 'football') {
-      return this.fetchPrioritizedFootballMatches();
     }
 
     return [];
