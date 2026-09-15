@@ -21,14 +21,29 @@ import {
   setDoc,
   updateDoc
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
+import firebaseConfigFile from '../../firebase-applet-config.json';
 import { User, UserRole } from '../types';
 
+// Support VITE_FIREBASE_* environment variables (common in Vercel / production deployments)
+// with seamless fallback to firebase-applet-config.json
+const env = typeof import.meta !== 'undefined' ? (import.meta as any).env || {} : {};
+
+export const resolvedFirebaseConfig = {
+  apiKey: (env.VITE_FIREBASE_API_KEY as string | undefined)?.trim() || firebaseConfigFile.apiKey,
+  authDomain: (env.VITE_FIREBASE_AUTH_DOMAIN as string | undefined)?.trim() || firebaseConfigFile.authDomain,
+  projectId: (env.VITE_FIREBASE_PROJECT_ID as string | undefined)?.trim() || firebaseConfigFile.projectId,
+  storageBucket: (env.VITE_FIREBASE_STORAGE_BUCKET as string | undefined)?.trim() || firebaseConfigFile.storageBucket,
+  messagingSenderId: (env.VITE_FIREBASE_MESSAGING_SENDER_ID as string | undefined)?.trim() || firebaseConfigFile.messagingSenderId,
+  appId: (env.VITE_FIREBASE_APP_ID as string | undefined)?.trim() || firebaseConfigFile.appId,
+  measurementId: (env.VITE_FIREBASE_MEASUREMENT_ID as string | undefined)?.trim() || firebaseConfigFile.measurementId,
+  firestoreDatabaseId: (env.VITE_FIREBASE_DATABASE_ID as string | undefined)?.trim() || firebaseConfigFile.firestoreDatabaseId
+};
+
 // Initialize Firebase App exactly once
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+const app = getApps().length === 0 ? initializeApp(resolvedFirebaseConfig) : getApp();
 
 export const auth = getAuth(app);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || undefined);
+export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId || undefined);
 
 // Ensure local persistence so sessions survive page refresh and browser navigation
 try {
@@ -144,18 +159,26 @@ export async function signInWithGoogleAuth(): Promise<{ email: string; displayNa
     console.warn('[Firebase Auth DEBUG] Popup sign-in notice:', error?.code, error?.message);
 
     // If popup was explicitly blocked by browser, attempt redirect fallback
-    if (error.code === 'auth/popup-blocked') {
+    if (error?.code === 'auth/popup-blocked') {
       console.log('[Firebase Auth DEBUG] Popup blocked: Attempting redirect fallback...');
       try {
         await signInWithRedirect(auth, googleProvider);
         return new Promise(() => {}); // Wait for redirect unload
       } catch (redirectErr: any) {
-        throw new Error(mapFirebaseError(redirectErr));
+        const mappedRedirectMsg = mapFirebaseError(redirectErr);
+        const errObj = new Error(mappedRedirectMsg);
+        (errObj as any).code = redirectErr?.code || 'auth/redirect-error';
+        (errObj as any).originalError = redirectErr;
+        throw errObj;
       }
     }
 
-    // Map other errors (e.g. cancelled by user, unauthorized domain) cleanly
-    throw new Error(mapFirebaseError(error));
+    // Map other errors (e.g. cancelled by user, unauthorized domain) cleanly while preserving code
+    const mappedMsg = mapFirebaseError(error);
+    const errObj = new Error(mappedMsg);
+    (errObj as any).code = error?.code || 'auth/google-sign-in-failed';
+    (errObj as any).originalError = error;
+    throw errObj;
   }
 }
 
@@ -291,8 +314,8 @@ export function getAuthDiagnostics() {
 
   return {
     isInitialized: !!app,
-    projectId: firebaseConfig.projectId || 'hale-bucksaw-498sv',
-    authDomain: firebaseConfig.authDomain || 'hale-bucksaw-498sv.firebaseapp.com',
+    projectId: resolvedFirebaseConfig.projectId || 'jj-book-store',
+    authDomain: resolvedFirebaseConfig.authDomain || 'jj-book-store.firebaseapp.com',
     currentHostname: hostname,
     currentOrigin: origin,
     currentUserUid: currentFbUser ? currentFbUser.uid : null,

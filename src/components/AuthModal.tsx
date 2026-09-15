@@ -36,12 +36,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [diagnostics, setDiagnostics] = useState<any>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   useEffect(() => {
     setDiagnostics(getAuthDiagnostics());
   }, [error]);
 
   if (!isOpen) return null;
+
+  const currentHostname = typeof window !== 'undefined' ? window.location.hostname : 'jj-betting.vercel.app';
+  const isUnauthorizedDomain =
+    lastErrorCode === 'auth/unauthorized-domain' ||
+    Boolean(error && (error.includes('unauthorized-domain') || error.includes('not authorized in Firebase')));
+
+  const handleCopyDomain = () => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(currentHostname);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2500);
+    }
+  };
 
   const triggerAuthSuccess = (user: User, wallet: Wallet) => {
     if (onAuthSuccess) onAuthSuccess(user, wallet);
@@ -239,16 +253,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             triggerAuthSuccess(session.user, session.wallet);
             onClose();
             return;
-          } catch {
-            const res = await api.login(targetEmail, targetPassword);
-            triggerAuthSuccess(res.user, res.wallet);
-            onClose();
+          } catch (regErr: any) {
+            console.warn('[AuthModal] Auto-registration notice:', regErr);
+            setLastErrorCode(regErr?.code || 'REG_ERROR');
+            setError(mapFirebaseError(regErr));
             return;
           }
         }
-        const res = await api.login(targetEmail, targetPassword);
-        triggerAuthSuccess(res.user, res.wallet);
-        onClose();
+        setLastErrorCode(fbErr?.code || 'AUTH_ERROR');
+        setError(mapFirebaseError(fbErr));
       }
     } catch (err: any) {
       console.error('[AuthModal DEBUG] Quick fill login notice:', err);
@@ -319,6 +332,61 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     Code: {lastErrorCode}
                   </div>
                 )}
+              </div>
+            </div>
+          )}
+
+          {isUnauthorizedDomain && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3.5 space-y-2.5 text-xs text-amber-200">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <div className="font-bold text-white text-xs">
+                    Firebase Authorized Domain Required
+                  </div>
+                  <p className="text-slate-300 leading-relaxed text-[11px]">
+                    Google OAuth requires <span className="text-amber-300 font-semibold">{currentHostname}</span> to be added to Authorized Domains in your Firebase Console.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2 flex items-center justify-between gap-2">
+                <div className="font-mono text-emerald-400 text-xs truncate select-all">
+                  {currentHostname}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCopyDomain}
+                  className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-semibold rounded flex items-center gap-1 shrink-0 transition-colors cursor-pointer"
+                >
+                  {copiedDomain ? (
+                    <>
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      <span className="text-emerald-400">Copied!</span>
+                    </>
+                  ) : (
+                    <span>Copy Domain</span>
+                  )}
+                </button>
+              </div>
+
+              <div className="text-[11px] text-slate-400 space-y-1">
+                <div>1. Go to Firebase Console &gt; Authentication &gt; Settings</div>
+                <div>2. Under <strong>Authorized domains</strong>, click <strong>Add domain</strong></div>
+                <div>3. Paste <strong>{currentHostname}</strong> and click Save</div>
+              </div>
+
+              <div className="flex items-center justify-between pt-1 border-t border-amber-500/20">
+                <a
+                  href={`https://console.firebase.google.com/project/${diagnostics?.projectId || 'jj-book-store'}/authentication/settings`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-amber-400 hover:text-amber-300 font-semibold underline text-[11px] flex items-center gap-1"
+                >
+                  <span>Open Firebase Settings</span>
+                  <ArrowRight className="w-3 h-3" />
+                </a>
+                <span className="text-[10px] text-slate-400">Email/Password sign-in works immediately</span>
               </div>
             </div>
           )}

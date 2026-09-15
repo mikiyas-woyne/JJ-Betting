@@ -96,7 +96,7 @@ class AuthService {
     } catch {
       try {
         const decodedFb: any = jwt.decode(token);
-        if (decodedFb && (decodedFb.aud === 'hale-bucksaw-498sv' || (decodedFb.iss && decodedFb.iss.includes('securetoken.google.com')))) {
+        if (decodedFb && (decodedFb.aud === 'jj-book-store' || decodedFb.aud === 'hale-bucksaw-498sv' || (decodedFb.iss && decodedFb.iss.includes('securetoken.google.com')))) {
           const email = (decodedFb.email || '').toLowerCase();
           const uid = decodedFb.sub || decodedFb.user_id;
           if (email) {

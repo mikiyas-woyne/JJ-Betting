@@ -1,12 +1,12 @@
 {
-  "projectId": "hale-bucksaw-498sv",
-  "appId": "1:709689371638:web:ecbfec37907edfbe1c35d7",
-  "apiKey": "AIzaSyCSsgESu4SdFGpA5giog1_LVxKQveLs0zM",
-  "authDomain": "hale-bucksaw-498sv.firebaseapp.com",
+  "projectId": "jj-book-store",
+  "appId": "1:646740653952:web:80fdb957b2883d2c82b365",
+  "apiKey": "AIzaSyCawESpi-u3olNp2dQWIzk-4wG2tqlsxd0",
+  "authDomain": "jj-book-store.firebaseapp.com",
   "firestoreDatabaseId": "ai-studio-apexsportsbook-16fccedb-97cd-48f8-b985-43028cdcd052",
-  "storageBucket": "hale-bucksaw-498sv.firebasestorage.app",
-  "messagingSenderId": "709689371638",
+  "storageBucket": "jj-book-store.firebasestorage.app",
+  "messagingSenderId": "646740653952",
   "measurementId": "",
-  "oAuthClientId": "709689371638-mkq2e3nhn1kvm9k4jp7h34ud1svgvel4.apps.googleusercontent.com",
+  "oAuthClientId": "646740653952-r426jur24b0au1a7b27cea787l9ivm7u.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }
